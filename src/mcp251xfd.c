@@ -60,7 +60,7 @@ static inline void errorf(const char *format, ...)
  */
 enum mcp251xfd_registers
 {
-    MCP251XFD_REG_C1CON = 0x0000, // CAN Control Register
+    MCP251XFD_REG_CICON = 0x0000, // CAN Control Register
     MCP251XFD_REG_C1NBTCFG = 0x0004,
     MCP251XFD_REG_C1DBTCFG = 0x0008,
     MCP251XFD_REG_C1TDC = 0x000C,
@@ -109,11 +109,22 @@ enum mcp251xfd_registers
  */
 enum mcp251xfd_cicon_bits
 {
-    MCP251XFD_C1CON_DNCNT_MASK = (0x1F << 0), // Device Net Filter Bit Number Mask.
-    MCP251XFD_C1CON_ISOCRCEN = (0x01 << 5),   // Enable ISO CRC in CAN FD Frames bit.
-    MCP251XFD_C1CON_PXEDIS = (0x01 << 6),     // Protocol Exception Event Detection Disabled bit
-    MCP251XFD_C1CON_WAKFIL = (0x01 << 8),     // Enable CAN Bus Line Wake-up Filter bit.
-    MCP251XFD_C1CON_WFT = (0x03 << 9),        // Selectable Wake-up Filter Time bits
+    MCP251XFD_CICON_DNCNT_MASK = (0x1F << 0),  // Device Net Filter Bit Number Mask.
+    MCP251XFD_CICON_ISOCRCEN = (0x01 << 5),    // Enable ISO CRC in CAN FD Frames bit.
+    MCP251XFD_CICON_PXEDIS = (0x01 << 6),      // Protocol Exception Event Detection Disabled bit.
+    MCP251XFD_CICON_WAKFIL = (0x01 << 8),      // Enable CAN Bus Line Wake-up Filter bit.
+    MCP251XFD_CICON_WFT = (0x03 << 9),         // Selectable Wake-up Filter Time bits.
+    MCP251XFD_CICON_BUSY = (0x01 << 11),       // CAN Module is Busy bit.
+    MCP251XFD_CICON_BRSDIS = (0x01 << 12),     // Bit Rate Switching Disable bit.
+    MCP251XFD_CICON_RTXAT = (0x01 << 16),      // Restrict Retransmission Attempts bit.
+    MCP251XFD_CICON_ESIGM = (0x01 << 17),      // Transmit ESI in Gateway Mode bit.
+    MCP251XFD_CICON_SERR2LOM = (0x01 << 18),   // Transition to Listen Only Mode on System Error bit.
+    MCP251XFD_CICON_STEF = (0x01 << 19),       // Store in Transmit Event FIFO bit.
+    MCP251XFD_CICON_TXQEN = (0x01 << 20),      // Transmit Queue Enable bit.
+    MCP251XFD_CICON_OPMOD_MASK = (0x07 << 21), // Current operating mode status.
+    MCP251XFD_CICON_REQOP_MASK = (0x07 << 24), // Requested operating mode bits.
+    MCP251XFD_CICON_ABAT = (0x01 << 27),       // Abort All Pending Transmissions bit.
+    MCP251XFD_CICON_TXBWS = (0x0F << 28)       // Transmit Bandwidth Sharing bits.
 };
 
 #define MCP251XFD_REG_FIFOCON(fifo_number) (MCP251XFD_REG_C1FIFOCON1 + (fifo_number * 12))
@@ -135,6 +146,7 @@ struct mcp2518fd_priv
 {
     bool initialised; // Track if instance has been initialised for validation.
 
+    uint32_t (*time_us)(void);
     void (*delay)(uint32_t microseconds);
     void (*chip_enable)(void *iface, bool enable);
     void (*spi_transfer)(void *iface, const uint8_t *tx_data, uint8_t *rx_data, size_t length);
@@ -266,19 +278,54 @@ static void mcp251xfd_reset_device(MCP251XFD *dev)
 mcp251xfd_return_t mcp251xfd_request_opmode(MCP251XFD *dev, mcp251xfd_opmode_t mode)
 {
     // Read current control register value.
-    uint8_t c1con[4];
-    mcp251xfd_read_register(dev, MCP251XFD_REG_C1CON, c1con, 4);
+    uint32_t cicon = mcp251xfd_read_word(dev, MCP251XFD_REG_CICON);
 
     // Clear current mode bits (bits 0-2).
-    c1con[0] &= ~0x07;
+    cicon &= ~MCP251XFD_CICON_REQOP_MASK;
 
     // Set new mode bits.
-    c1con[0] |= (mode & 0x07);
+    cicon |= (mode << 24) & MCP251XFD_CICON_REQOP_MASK;
 
-    // Write updated control register value back to device.
-    mcp251xfd_write_register(dev, MCP251XFD_REG_C1CON, c1con, 4);
+    // Write rquested mode back to control register.
+    mcp251xfd_write_word(dev, MCP251XFD_REG_CICON, cicon);
 
     return MCP251XFD_RETURN_OK;
+}
+
+mcp251xfd_return_t mcp251xfd_await_opmode(MCP251XFD *dev, mcp251xfd_opmode_t mode, uint32_t timeout_us)
+{
+    uint32_t start_time = dev->time_us();
+
+    while (true)
+    {
+        // Read current control register value.
+        uint32_t cicon = mcp251xfd_read_word(dev, MCP251XFD_REG_CICON);
+
+        // Check if current mode matches requested mode.
+        if ((cicon & MCP251XFD_CICON_OPMOD_MASK) == ((mode << 21) & MCP251XFD_CICON_OPMOD_MASK))
+        {
+            return MCP251XFD_RETURN_OK; // Desired mode achieved.
+        }
+
+        // Check for timeout condition here using start_time and current time.
+        if (dev->time_us() - start_time > timeout_us)
+        {
+            return MCP251XFD_RETURN_TIMEOUT; // Timeout occurred.
+        }
+
+        dev->delay(10); // Delay briefly before checking again to avoid busy-waiting.
+    }
+}
+
+mcp251xfd_return_t mcp251xfd_change_opmode(MCP251XFD *dev, mcp251xfd_opmode_t mode, uint32_t timeout_us)
+{
+    mcp251xfd_return_t result = mcp251xfd_request_opmode(dev, mode);
+    if (result != MCP251XFD_RETURN_OK)
+    {
+        return result; // Return error from request_opmode if it failed.
+    }
+
+    return mcp251xfd_await_opmode(dev, mode, timeout_us); // Wait for mode change to take effect and return result.
 }
 
 mcp251xfd_return_t mcp251xfd_initialise(MCP251XFD *dev, mcp251xfd_config_t *config)

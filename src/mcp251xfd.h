@@ -44,6 +44,7 @@ typedef enum mcp251xfd_return
     MCP251XFD_RETURN_INVALID_PARAM,   // An invalid parameter was provided to a function.
     MCP251XFD_RETURN_NOT_INITIALISED, // The device instance has not been initialised before use.
 
+    MCP251XFD_RETURN_TIMEOUT,      // A timeout occurred while waiting for an operation to complete.
     MCP251XFD_RETURN_TX_FIFO_FULL, // The transmit FIFO is full and cannot accept new frames for transmission.
     MCP251XFD_RETURN_RX_FIFO_EMPTY // The receive FIFO is empty and there are no frames available to read.
 } mcp251xfd_return_t;
@@ -94,6 +95,9 @@ typedef enum mcp251xfd_fosc
  */
 typedef struct mcp251xfd_config
 {
+    // Function pointer for a microsecond-resolution timer function, used for timing requirements during initialisation and operation.
+    uint32_t (*elapsed_us)(void);
+
     // Function pointer for a delay function, used for timing requirements during initialisation and operation.
     void (*delay_func)(uint32_t microseconds);
 
@@ -172,5 +176,27 @@ typedef enum mcp251xfd_opmode
  * @return mcp251xfd_return_t indicating the result of the operation.
  */
 mcp251xfd_return_t mcp251xfd_request_opmode(MCP251XFD *dev, mcp251xfd_opmode_t opmode);
+
+/**
+ * @brief Awaits for the MCP251xFD device to enter the previously requested operational mode.
+ *
+ * @param dev The MCP251xFD device instance.
+ * @param mode The previously requested operational mode.
+ * @param timeout_us The timeout in microseconds.
+ *
+ * @return mcp251xfd_return_t indicating the result of the operation.
+ */
+mcp251xfd_return_t mcp251xfd_await_opmode(MCP251XFD *dev, mcp251xfd_opmode_t mode, uint32_t timeout_us);
+
+/**
+ * @brief Requests change of operating mode and waits for the device to enter that mode.
+ *
+ * @param dev The MCP251xFD device instance.
+ * @param mode The desired operational mode to change to.
+ * @param timeout_us The timeout in microseconds to wait for the device to enter the requested mode.
+ *
+ * @return mcp251xfd_return_t indicating the result of the operation, including timeout if the device fails to enter the requested mode within the specified time.
+ */
+mcp251xfd_return_t mcp251xfd_change_opmode(MCP251XFD *dev, mcp251xfd_opmode_t mode, uint32_t timeout_us);
 
 #endif // __MCP251XFD_H__

@@ -152,6 +152,10 @@ mcp251xfd_return_t mcp251xfd_deinitialise(MCP251XFD *dev);
 mcp251xfd_return_t mcp251xfd_reset(MCP251XFD *dev);
 
 /**
+ *  OPERATING MODE.
+ */
+
+/**
  * @enum mcp251xfd_opmode
  * @brief Enumeration of operational modes for the MCP251xFD device.
  */
@@ -190,6 +194,7 @@ mcp251xfd_return_t mcp251xfd_await_opmode(MCP251XFD *dev, mcp251xfd_opmode_t mod
 
 /**
  * @brief Requests change of operating mode and waits for the device to enter that mode.
+ * Combines mcp251xfd_request_opmode() and mcp251xfd_await_opmode() into a single function for convenience.
  *
  * @param dev The MCP251xFD device instance.
  * @param mode The desired operational mode to change to.
@@ -198,5 +203,15 @@ mcp251xfd_return_t mcp251xfd_await_opmode(MCP251XFD *dev, mcp251xfd_opmode_t mod
  * @return mcp251xfd_return_t indicating the result of the operation, including timeout if the device fails to enter the requested mode within the specified time.
  */
 mcp251xfd_return_t mcp251xfd_change_opmode(MCP251XFD *dev, mcp251xfd_opmode_t mode, uint32_t timeout_us);
+
+/**
+ * @brief Gets the current operational mode of the MCP251xFD device.
+ *
+ * @param dev The MCP251xFD device instance.
+ * @param mode Pointer to store the current operational mode.
+ *
+ * @return mcp251xfd_return_t indicating the result of the operation.
+ */
+mcp251xfd_return_t mcp251xfd_get_opmode(MCP251XFD *dev, mcp251xfd_opmode_t *mode);
 
 #endif // __MCP251XFD_H__

@@ -49,6 +49,21 @@ static inline void errorf(const char *format, ...)
 #endif
 }
 
+#define TEST_DEVICE_PARAM(dev)                                                                                           \
+    do                                                                                                                   \
+    {                                                                                                                    \
+        if (dev == NULL)                                                                                                 \
+        {                                                                                                                \
+            errorf("MCP251xFD instance pointer is null.");                                                               \
+            return MCP251XFD_RETURN_INVALID_PARAM;                                                                       \
+        }                                                                                                                \
+        if (dev->initialised == false)                                                                                   \
+        {                                                                                                                \
+            errorf("MCP251xFD instance has not been initialised. Call mcp251xfd_initialise() before using the device."); \
+            return MCP251XFD_RETURN_NOT_INITIALISED;                                                                     \
+        }                                                                                                                \
+    } while (0)
+
 #pragma endregion Error Handling
 
 #pragma region Definitions and Constants
@@ -126,6 +141,8 @@ enum mcp251xfd_cicon_bits
     MCP251XFD_CICON_ABAT = (0x01 << 27),       // Abort All Pending Transmissions bit.
     MCP251XFD_CICON_TXBWS = (0x0F << 28)       // Transmit Bandwidth Sharing bits.
 };
+#define MCP251XFD_CICON_OPMOD_SFT 21
+#define MCP251XFD_CICON_REQOP_SFT 24
 
 #define MCP251XFD_REG_FIFOCON(fifo_number) (MCP251XFD_REG_C1FIFOCON1 + (fifo_number * 12))
 #define MCP251XFD_REG_FIFOSTA(fifo_number) (MCP251XFD_REG_C1FIFOSTA1 + (fifo_number * 12))
@@ -277,6 +294,12 @@ static void mcp251xfd_reset_device(MCP251XFD *dev)
 
 mcp251xfd_return_t mcp251xfd_request_opmode(MCP251XFD *dev, mcp251xfd_opmode_t mode)
 {
+    if (dev == NULL)
+    {
+        errorf("MCP251xFD instance pointer is null.");
+        return MCP251XFD_RETURN_INVALID_PARAM;
+    }
+
     // Read current control register value.
     uint32_t cicon = mcp251xfd_read_word(dev, MCP251XFD_REG_CICON);
 
@@ -284,7 +307,7 @@ mcp251xfd_return_t mcp251xfd_request_opmode(MCP251XFD *dev, mcp251xfd_opmode_t m
     cicon &= ~MCP251XFD_CICON_REQOP_MASK;
 
     // Set new mode bits.
-    cicon |= (mode << 24) & MCP251XFD_CICON_REQOP_MASK;
+    cicon |= (mode << MCP251XFD_CICON_REQOP_SFT) & MCP251XFD_CICON_REQOP_MASK;
 
     // Write rquested mode back to control register.
     mcp251xfd_write_word(dev, MCP251XFD_REG_CICON, cicon);
@@ -294,6 +317,12 @@ mcp251xfd_return_t mcp251xfd_request_opmode(MCP251XFD *dev, mcp251xfd_opmode_t m
 
 mcp251xfd_return_t mcp251xfd_await_opmode(MCP251XFD *dev, mcp251xfd_opmode_t mode, uint32_t timeout_us)
 {
+    if (dev == NULL)
+    {
+        errorf("MCP251xFD instance pointer is null.");
+        return MCP251XFD_RETURN_INVALID_PARAM;
+    }
+
     uint32_t start_time = dev->time_us();
 
     while (true)
@@ -302,7 +331,7 @@ mcp251xfd_return_t mcp251xfd_await_opmode(MCP251XFD *dev, mcp251xfd_opmode_t mod
         uint32_t cicon = mcp251xfd_read_word(dev, MCP251XFD_REG_CICON);
 
         // Check if current mode matches requested mode.
-        if ((cicon & MCP251XFD_CICON_OPMOD_MASK) == ((mode << 21) & MCP251XFD_CICON_OPMOD_MASK))
+        if ((cicon & MCP251XFD_CICON_OPMOD_MASK) == ((mode << MCP251XFD_CICON_OPMOD_SFT) & MCP251XFD_CICON_OPMOD_MASK))
         {
             return MCP251XFD_RETURN_OK; // Desired mode achieved.
         }
@@ -319,6 +348,12 @@ mcp251xfd_return_t mcp251xfd_await_opmode(MCP251XFD *dev, mcp251xfd_opmode_t mod
 
 mcp251xfd_return_t mcp251xfd_change_opmode(MCP251XFD *dev, mcp251xfd_opmode_t mode, uint32_t timeout_us)
 {
+    if (dev == NULL)
+    {
+        errorf("MCP251xFD instance pointer is null.");
+        return MCP251XFD_RETURN_INVALID_PARAM;
+    }
+
     mcp251xfd_return_t result = mcp251xfd_request_opmode(dev, mode);
     if (result != MCP251XFD_RETURN_OK)
     {
@@ -326,6 +361,29 @@ mcp251xfd_return_t mcp251xfd_change_opmode(MCP251XFD *dev, mcp251xfd_opmode_t mo
     }
 
     return mcp251xfd_await_opmode(dev, mode, timeout_us); // Wait for mode change to take effect and return result.
+}
+
+mcp251xfd_return_t mcp251xfd_get_opmode(MCP251XFD *dev, mcp251xfd_opmode_t *mode)
+{
+    if (dev == NULL)
+    {
+        errorf("MCP251xFD instance pointer is null.");
+        return MCP251XFD_RETURN_INVALID_PARAM;
+    }
+
+    if (mode == NULL)
+    {
+        errorf("Output parameter for current mode cannot be null.");
+        return MCP251XFD_RETURN_INVALID_PARAM;
+    }
+
+    // Read current control register value.
+    uint32_t cicon = mcp251xfd_read_word(dev, MCP251XFD_REG_CICON);
+
+    // Extract current mode bits and store in output parameter.
+    *mode = (mcp251xfd_opmode_t)((cicon & MCP251XFD_CICON_OPMOD_MASK) >> 21);
+
+    return MCP251XFD_RETURN_OK;
 }
 
 mcp251xfd_return_t mcp251xfd_initialise(MCP251XFD *dev, mcp251xfd_config_t *config)
@@ -347,11 +405,12 @@ mcp251xfd_return_t mcp251xfd_initialise(MCP251XFD *dev, mcp251xfd_config_t *conf
     }
 
     // Function pointers are null
-    if (config->delay_func == NULL || config->chip_enable == NULL || config->spi_transfer == NULL)
+    if (config->elapsed_us == NULL || config->delay_func == NULL || config->chip_enable == NULL || config->spi_transfer == NULL)
     {
         errorf("MCP251xFD configuration function pointers cannot be null.");
         return MCP251XFD_RETURN_INVALID_PARAM;
     }
 
+    /// Validate configuration parameters.
     return MCP251XFD_RETURN_OK;
 }

@@ -26,7 +26,27 @@
 #include "can.h"
 
 /* Error handling */
+
+/**
+ * @brief Retrieves the last error message in plain text.
+ * @note MCP251XFD_ENABLE_ERROR_MESSAGES must be defined for this function to return meaningful messages.
+ * Otherwise, it returns an empty string.
+ */
 const char *mcp251xfd_get_error_msg(void);
+
+/**
+ * @brief Return codes for MCP251xFD driver functions, indicating the result of operations.
+ */
+typedef enum mcp251xfd_return
+{
+    MCP251XFD_RETURN_OK,              // Operation was successful.
+    MCP251XFD_RETURN_ERROR,           // A generic error occurred.
+    MCP251XFD_RETURN_INVALID_PARAM,   // An invalid parameter was provided to a function.
+    MCP251XFD_RETURN_NOT_INITIALISED, // The device instance has not been initialised before use.
+
+    MCP251XFD_RETURN_TX_FIFO_FULL, // The transmit FIFO is full and cannot accept new frames for transmission.
+    MCP251XFD_RETURN_RX_FIFO_EMPTY // The receive FIFO is empty and there are no frames available to read.
+} mcp251xfd_return_t;
 
 /**
  * @enum mcp251xfd_model
@@ -104,16 +124,27 @@ typedef struct mcp251xfd_config
  * @param dev The MCP251xFD device instance.
  * @param config The configuration parameters.
  *
- * @return true if initialisation is successful, false otherwise. Check mcp251xfd_get_error_msg() for more details.
+ * @return mcp251xfd_return_t indicating the result of the initialisation process.
  */
-bool mcp251xfd_initialise(MCP251XFD *dev, mcp251xfd_config_t *config);
+mcp251xfd_return_t mcp251xfd_initialise(MCP251XFD *dev, mcp251xfd_config_t *config);
+
+/**
+ * @brief Deinitialises the MCP251xFD device, putting it into a low power state.
+ *
+ * @param dev The MCP251xFD device instance.
+ *
+ * @return mcp251xfd_return_t indicating the result of the deinitialisation process.
+ */
+mcp251xfd_return_t mcp251xfd_deinitialise(MCP251XFD *dev);
 
 /**
  * @brief Resets the MCP251xFD device.
  * This resets the device and configures it to the previously set parameters used at initialization.
  *
  * @param dev The MCP251xFD device instance.
+ *
+ * @return mcp251xfd_return_t indicating the result of the reset process.
  */
-void mcp251xfd_reset(MCP251XFD *dev);
+mcp251xfd_return_t mcp251xfd_reset(MCP251XFD *dev);
 
 #endif // __MCP251XFD_H__

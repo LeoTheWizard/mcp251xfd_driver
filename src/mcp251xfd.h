@@ -1,6 +1,6 @@
 /**
  * @file mcp2518fd.h
- * @brief Interface for the MicroChip MCP251xFD family of external CAN controller drivers.
+ * @brief Interface for the MicroChip MCP251xFD family of external SPI CAN controller drivers.
  *
  * @details This modules provides the ability to drive the CAN controller over SPI, allowing transmission of CAN frames on a CAN bus.
  * The MCP251xFD family of controllers support both CAN 2.0 and CAN FD frames, and this driver is designed to support both frame types.
@@ -23,8 +23,19 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+#include "can.h"
+
 /* Error handling */
 const char *mcp251xfd_get_error_msg(void);
+
+/**
+ * @enum mcp251xfd_model
+ */
+typedef enum mcp251xfd_model
+{
+    MODEL_MCP2517FD,
+    MODEL_MCP2518FD
+} mcp251xfd_model_t;
 
 /**
  * @struct MCP251XFD
@@ -46,13 +57,24 @@ MCP251XFD *mcp251xfd_create_instance(void);
 void mcp251xfd_destroy_instance(MCP251XFD *instance);
 
 /**
+ * @enum mcp251xfd_fosc
+ * @brief Enumeration of supported external clock frequencies for the MCP251xFD device.
+ */
+typedef enum mcp251xfd_fosc
+{
+    MCP251XFD_FOSC_4MHZ,
+    MCP251XFD_FOSC_20MHZ,
+    MCP251XFD_FOSC_40MHZ
+} mcp251xfd_fosc_t;
+
+/**
  * @struct mcp251xfd_config
- * @brief Configuration structure for initializing the MCP251xFD device.
- *        This structure should be populated with the desired configuration parameters before calling the initialization function.
+ * @brief Configuration structure for initialising the MCP251xFD device.
+ *        This structure should be populated with the desired configuration parameters before calling the initialisation function.
  */
 typedef struct mcp251xfd_config
 {
-    // Function pointer for a delay function, used for timing requirements during initialization and operation.
+    // Function pointer for a delay function, used for timing requirements during initialisation and operation.
     void (*delay_func)(uint32_t microseconds);
 
     // Function pointer for controlling the chip enable (CE) pin of the MCP251xFD device.
@@ -64,16 +86,25 @@ typedef struct mcp251xfd_config
                          uint8_t *rx_data,       // Recieve data buffer.
                          size_t length);         // Length of the data to be transferred in bytes.
 
+    // External clock frequency selection for the MCP251xFD device. Select the correct frequency based on your board design.
+    mcp251xfd_fosc_t fosc;
+
+    // Initial CAN bus baud rate for the nominal bit timing phase. Used during arbitration and control frames.
+    can_baudrates_t nominal_baud;
+
+    // Initial CAN bus baud rate for the data bit timing phase. Used during CAN FD data frames when BRS is enabled.
+    can_baudrates_t data_baud;
+
 } mcp251xfd_config_t;
 
 /**
- * @brief Initializes the MCP251xFD device with the provided configuration.
+ * @brief Initialises the MCP251xFD device with the provided configuration.
  * The MCP251xFD chip will be in a known state after this function call.
  *
  * @param dev The MCP251xFD device instance.
  * @param config The configuration parameters.
  *
- * @return true if initialization is successful, false otherwise. Check mcp251xfd_get_error_msg() for more details.
+ * @return true if initialisation is successful, false otherwise. Check mcp251xfd_get_error_msg() for more details.
  */
 bool mcp251xfd_initialise(MCP251XFD *dev, mcp251xfd_config_t *config);
 

@@ -8,6 +8,9 @@
  *
  */
 
+#ifndef __CAN_H__
+#define __CAN_H__
+
 #include <stdint.h>
 
 #define CAN_SFF_MASK 0x000007FFUL // Standard Identifier Mask
@@ -56,3 +59,27 @@ static inline uint8_t can_frame_get_length(const can_frame_t *frame)
         return 64;
     return dlc_map[frame->dlc];
 }
+
+/**
+ * @enum can_baudrates
+ * @brief Enumeration of common CAN baud rates, including both standard CAN and CAN FD data rates.
+ *        These baud rates can be used to configure the CAN controller for communication at the desired speed.
+ *
+ * @note The actual achievable baud rates may depend on the specific CAN controller hardware and the clock frequency used.
+ */
+typedef enum can_baudrates
+{
+    CAN_BAUD_10KBPS,
+    CAN_BAUD_20KBPS,
+    CAN_BAUD_50KBPS,
+    CAN_BAUD_100KBPS,
+    CAN_BAUD_125KBPS,
+    CAN_BAUD_250KBPS,
+    CAN_BAUD_500KBPS,
+    CAN_BAUD_1MBPS,
+    CAN_BAUD_2MBPS,
+    CAN_BAUD_4MBPS,
+    CAN_BAUD_8MBPS,
+} can_baudrates_t;
+
+#endif // __CAN_H__

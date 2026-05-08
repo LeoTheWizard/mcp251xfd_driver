@@ -18,23 +18,26 @@
 #define ERROR_BUFFER_SIZE 128
 static char error_buffer[ERROR_BUFFER_SIZE] = {0};
 
-struct mcp2518fd_device
+const char *mcp251xfd_get_error_msg(void)
 {
-    spi_instance_t *spi_dev;
+    error_buffer[ERROR_BUFFER_SIZE - 1] = '\0'; // Ensure null termination
+    return error_buffer;
+}
+
+/**
+ * @brief Implementation of device instance.
+ */
+struct mcp2518fd_priv
+{
+    bool initialised; // Track if instance has been initialised for validation.
+
+    void (*delay_func)(uint32_t microseconds);
+    void (*ce_control_func)(void *iface, bool enable);
+    void (*spi_transfer_func)(void *iface, const uint8_t *tx_data, uint8_t *rx_data, size_t length);
+
+    mcp251xfd_config_t config;
+    mcp251xfd_model_t model;
 };
-
-mcp2518fd_device_t *mcp2518fd_device_init(spi_instance_t *spi_device)
-{
-    mcp2518fd_device_t *dev = malloc(sizeof(mcp2518fd_device_t));
-    dev->spi_dev = spi_device;
-    return dev;
-}
-
-void mcp2518fd_device_destroy(mcp2518fd_device_t *device)
-{
-    if (device)
-        free(device);
-}
 
 enum mcp2518fd_registers
 {

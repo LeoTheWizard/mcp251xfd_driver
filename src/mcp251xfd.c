@@ -53,9 +53,14 @@ static inline void errorf(const char *format, ...)
 
 #pragma region Definitions and Constants
 
+/**
+ * @enum mcp251xfd_registers
+ * @brief Register addresses for the MCP251xFD device.
+ * These are used for SPI communication to read/write specific registers in the device.
+ */
 enum mcp251xfd_registers
 {
-    MCP251XFD_REG_C1CON = 0x0000,
+    MCP251XFD_REG_C1CON = 0x0000, // CAN Control Register
     MCP251XFD_REG_C1NBTCFG = 0x0004,
     MCP251XFD_REG_C1DBTCFG = 0x0008,
     MCP251XFD_REG_C1TDC = 0x000C,
@@ -96,6 +101,19 @@ enum mcp251xfd_registers
     MCP251XFD_REG_ECCCON = 0x0E0C,  //  ECC CONTROL REGISTER
     MCP251XFD_REG_ECCSTAT = 0x0E10, //  ECC STATUS REGISTER
     MCP251XFD_REG_DEVID = 0x0E14    //  DEVICE ID REGISTER
+};
+
+/**
+ * @enum mcp251xfd_cicon_bits
+ * @brief Bit masks for the CAN Control register of the MCP251xFD device.
+ */
+enum mcp251xfd_cicon_bits
+{
+    MCP251XFD_C1CON_DNCNT_MASK = (0x1F << 0), // Device Net Filter Bit Number Mask.
+    MCP251XFD_C1CON_ISOCRCEN = (0x01 << 5),   // Enable ISO CRC in CAN FD Frames bit.
+    MCP251XFD_C1CON_PXEDIS = (0x01 << 6),     // Protocol Exception Event Detection Disabled bit
+    MCP251XFD_C1CON_WAKFIL = (0x01 << 8),     // Enable CAN Bus Line Wake-up Filter bit.
+    MCP251XFD_C1CON_WFT = (0x03 << 9),        // Selectable Wake-up Filter Time bits
 };
 
 #define MCP251XFD_REG_FIFOCON(fifo_number) (MCP251XFD_REG_C1FIFOCON1 + (fifo_number * 12))
@@ -147,7 +165,121 @@ void mcp251xfd_destroy_instance(MCP251XFD *instance)
 
 #pragma endregion Instance Lifecycle
 
+#pragma region SPI Communication
+
+/**
+ * @enum mcp251xfd_spi_cmds
+ * @brief SPI command codes for communicating with the MCP251xFD device.
+ */
+enum mcp251xfd_spi_cmds
+{
+    MCP251XFD_SPI_RESET = 0x00,
+    MCP251XFD_SPI_READ = 0x03,
+    MCP251XFD_SPI_WRITE = 0x02,
+    MCP251XFD_SPI_READ_CRC = 0x0B,
+    MCP251XFD_SPI_WRITE_CRC = 0x0A,
+    MCP251XFD_SPI_WRITE_SAFE = 0x0C
+};
+
+/**
+ * @brief Writes a data buffer to the MCP251xFD device memory provided a starting register address.
+ * Address pointer automatically increments after each word written to memory.
+ *
+ * @param dev The MCP251xFD device instance.
+ * @param reg_addr The starting register address to write to.
+ * @param data The data buffer to be written to the device.
+ * @param length The length of the data buffer in bytes.
+ */
+static void mcp251xfd_write_register(MCP251XFD *dev, uint16_t reg_addr, const uint8_t *data, size_t length)
+{
+    // Command buffer
+    uint8_t cmd[2] = {MCP251XFD_SPI_WRITE << 4 | ((reg_addr >> 8) & 0x0F), reg_addr & 0xFF};
+
+    dev->chip_enable(dev, true);
+    dev->spi_transfer(dev, cmd, NULL, 2);       // Send write command and register address.
+    dev->spi_transfer(dev, data, NULL, length); // Send data to be written.
+    dev->chip_enable(dev, false);
+}
+
+/**
+ * @brief Reads data from the MCP251xFD device memory starting from a specified register address into a provided buffer.
+ * Address pointer automatically increments after each word read from memory.
+ *
+ * @param dev The MCP251xFD device instance.
+ * @param reg_addr The starting register address to read from.
+ * @param data The buffer to store the recieved data from the device.
+ * @param length The length of the data to be read in bytes.
+ */
+static void mcp251xfd_read_register(MCP251XFD *dev, uint16_t reg_addr, uint8_t *data, size_t length)
+{
+    // Command buffer
+    uint8_t cmd[2] = {MCP251XFD_SPI_READ << 4 | ((reg_addr >> 8) & 0x0F), reg_addr & 0xFF};
+
+    dev->chip_enable(dev, true);
+    dev->spi_transfer(dev, cmd, NULL, 2);       // Send read command and register address.
+    dev->spi_transfer(dev, NULL, data, length); // Read data into buffer.
+    dev->chip_enable(dev, false);
+}
+
+/**
+ * @brief Writes a 32-bit word to the specified register address in the MCP251xFD device.
+ */
+static void mcp251xfd_write_word(MCP251XFD *dev, uint16_t reg_addr, uint32_t word)
+{
+    uint8_t data[4] = {
+        (word >> 0) & 0xFF,
+        (word >> 8) & 0xFF,
+        (word >> 16) & 0xFF,
+        (word >> 24) & 0xFF};
+    mcp251xfd_write_register(dev, reg_addr, data, 4);
+}
+
+/**
+ * @brief Reads a 32-bit word from the specified register address in the MCP251xFD device.
+ * @return The 32-bit word read from the device.
+ */
+static uint32_t mcp251xfd_read_word(MCP251XFD *dev, uint16_t reg_addr)
+{
+    uint8_t data[4];
+    mcp251xfd_read_register(dev, reg_addr, data, 4);
+    return (data[0] << 0) | (data[1] << 8) | (data[2] << 16) | (data[3] << 24);
+}
+
+/**
+ * @brief Sends a reset command to the MCP251xFD device, which resets the device.
+ * @note Device will enter configuration mode after returning from reset.
+ *
+ * @param dev The MCP251xFD device instance.
+ */
+static void mcp251xfd_reset_device(MCP251XFD *dev)
+{
+    uint8_t cmd[2] = {MCP251XFD_SPI_RESET << 4, 0};
+    dev->chip_enable(dev, true);
+    dev->spi_transfer(dev, cmd, NULL, 2); // Send reset command.
+    dev->chip_enable(dev, false);
+}
+
+#pragma endregion SPI Communication
+
 #pragma region Device Control
+
+mcp251xfd_return_t mcp251xfd_request_opmode(MCP251XFD *dev, mcp251xfd_opmode_t mode)
+{
+    // Read current control register value.
+    uint8_t c1con[4];
+    mcp251xfd_read_register(dev, MCP251XFD_REG_C1CON, c1con, 4);
+
+    // Clear current mode bits (bits 0-2).
+    c1con[0] &= ~0x07;
+
+    // Set new mode bits.
+    c1con[0] |= (mode & 0x07);
+
+    // Write updated control register value back to device.
+    mcp251xfd_write_register(dev, MCP251XFD_REG_C1CON, c1con, 4);
+
+    return MCP251XFD_RETURN_OK;
+}
 
 mcp251xfd_return_t mcp251xfd_initialise(MCP251XFD *dev, mcp251xfd_config_t *config)
 {

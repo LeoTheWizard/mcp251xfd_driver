@@ -147,4 +147,30 @@ mcp251xfd_return_t mcp251xfd_deinitialise(MCP251XFD *dev);
  */
 mcp251xfd_return_t mcp251xfd_reset(MCP251XFD *dev);
 
+/**
+ * @enum mcp251xfd_opmode
+ * @brief Enumeration of operational modes for the MCP251xFD device.
+ */
+typedef enum mcp251xfd_opmode
+{
+    MCP251XFD_OPMODE_NORMAL,            //< Normal CAN FD mode; supports mixing of CAN FD and Classic CAN 2.0 frames
+    MCP251XFD_OPMODE_SLEEP,             //< Low power sleep mode, can be configured to wake on CAN bus activity or external interrupt.
+    MCP251XFD_OPMODE_INTERNAL_LOOPBACK, //< Internal loopback mode for self-testing, where transmitted frames are received internally without being sent on the CAN bus.
+    MCP251XFD_OPMODE_LISTEN_ONLY,       //< Listen-only mode where the device can receive frames from the CAN bus but does not acknowledge or transmit any frames.
+    MCP251XFD_OPMODE_CONFIG,            //< Configuration mode for setting up the device.
+    MCP251XFD_OPMODE_EXTERNAL_LOOPBACK, //< External loopback mode for testing, where transmitted frames are received externally without being sent on the CAN bus.
+    MCP251XFD_OPMODE_CLASSIC,           //< Classic CAN 2.0 mode.
+    MCP251XFD_OPMODE_RESTRICTED         //< Restricted operation mode.
+} mcp251xfd_opmode_t;
+
+/**
+ * @brief Requests a change in the operational mode of the MCP251xFD device.
+ *
+ * @param dev The MCP251xFD device instance.
+ * @param opmode The desired operational mode.
+ *
+ * @return mcp251xfd_return_t indicating the result of the operation.
+ */
+mcp251xfd_return_t mcp251xfd_request_opmode(MCP251XFD *dev, mcp251xfd_opmode_t opmode);
+
 #endif // __MCP251XFD_H__

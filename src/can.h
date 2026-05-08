@@ -1,44 +1,58 @@
-#pragma once
+/**
+ * @file can.h
+ * @brief CAN specific definitions and structures.
+ * @author Leo Walker
+ *
+ * @copyright Copyright (c) 2025 Leo Walker. Licensed under the MIT License.
+ *            See LICENSE in the root directory for the full license text.
+ *
+ */
 
 #include <stdint.h>
 
-#define CAN_SFF_MASK 0x000007FFUL// Standard Identifier Mask
-#define CAN_EFF_MASK 0x1FFFFFFFUL// Extended Identifier Mask
+#define CAN_SFF_MASK 0x000007FFUL // Standard Identifier Mask
+#define CAN_EFF_MASK 0x1FFFFFFFUL // Extended Identifier Mask
 
-///
-/// @struct can_fd_frame
-/// @brief Represents a CAN FD frame.
-///
-typedef struct __attribute__((packed))
+/**
+ * @enum can_frame_flags
+ * @brief Flags for CAN frame types and features.
+ *        These flags can be combined using bitwise OR to indicate multiple features of a CAN frame.
+ *        - CAN_FRAME_FLAG_EEF (0x01): Indicates that the frame uses the Extended Frame Format (EFF).
+ *        - CAN_FRAME_FLAG_FDF (0x02): Indicates that the frame is a CAN FD frame, which allows for larger data payloads.
+ *        - CAN_FRAME_FLAG_BRS (0x04): Indicates that the frame uses Bit Rate Switching (BRS), which allows for a higher data rate during the data phase of a CAN FD frame.
+ *        - CAN_FRAME_FLAG_ESI (0x08): Indicates that the frame has the Error State Indicator (ESI) flag set, which is used in CAN FD to indicate the error state of the transmitting node.
+ */
+typedef enum can_frame_flags : uint8_t
 {
-    uint32_t id;      // Frame Identifier.
-    bool eff;         // Is Extended Frame Format.
-    bool fd;          // Is Flexible Data rate frame.
-    bool brs;         // Bit Rate Switch bit.
-    bool esi;         // Error State Indicator bit.
-    uint8_t dlc;      // Data length code, past 8 bytes does not match the length of the frame itself. refer to dlc_map.
-    uint8_t data[64]; // Frame payload data buffer.
-} can_fd_frame_t;
+    CAN_FRAME_FLAG_EEF = 0x01, // Extended Frame Format (EFF) flag
+    CAN_FRAME_FLAG_FDF = 0x02, // CAN FD Frame (FDF) flag
+    CAN_FRAME_FLAG_BRS = 0x04, // Bit Rate Switch (BRS) flag
+    CAN_FRAME_FLAG_ESI = 0x08  // Error State Indicator (ESI) flag
+} can_frame_flags_t;
 
-// DLC to fd frame byte length
-// 0-8 -> 0-8 - Same as standard can frame.
-// 9   -> 12
-// 10  -> 16
-// 11  -> 20
-// 12  -> 24
-// 13  -> 32
-// 14  -> 48
-// 15  -> 64
-
-///
-/// @brief Decodes a frames Data Length Code into a useful byte length.
-/// @param frame The CAN FD frame.
-/// @return The data byte length of the frame provided.
-///
-static inline uint8_t can_fd_frame_get_length(const can_fd_frame_t* frame)
+/**
+ * @struct can_frame
+ * @brief Represents a CAN frame, which can be either a standard or extended frame, and may also be a CAN FD frame.
+ */
+typedef struct can_frame
 {
-    static const uint8_t dlc_map[16] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 12, 16, 20, 24, 32, 48, 64 };
+    uint32_t id;             // Frame Identifier.
+    can_frame_flags_t flags; // Frame flags, bitfield for eff(0x01), fd(0x02), brs(0x04), esi(0x08).
+    uint8_t dlc;             // Data length code, past 8 bytes does not match the length of the frame itself. refer to dlc_map.
+    uint8_t data[64];        // Frame payload data buffer.
+} can_frame_t;
 
-    if(frame->dlc > 15) return 255; // Error value as DLC is invalid.
+/**
+ * @brief Decodes a frames Data Length Code into a useful byte length.
+ * @param frame The CAN frame.
+ * @return The data byte length of the frame provided.
+ */
+static inline uint8_t can_frame_get_length(const can_frame_t *frame)
+{
+    static const uint8_t dlc_map[16] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 12, 16, 20, 24, 32, 48, 64};
+
+    // Any invalid values just return 64 to be safe.
+    if (frame->dlc > 15)
+        return 64;
     return dlc_map[frame->dlc];
 }

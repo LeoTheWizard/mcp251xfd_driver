@@ -64,6 +64,16 @@ static inline void errorf(const char *format, ...)
         }                                                                                                                \
     } while (0)
 
+#define CHECK_DEV_PARAM(dev)                               \
+    do                                                     \
+    {                                                      \
+        if (dev == NULL)                                   \
+        {                                                  \
+            errorf("MCP251xFD instance pointer is null."); \
+            return MCP251XFD_RETURN_INVALID_PARAM;         \
+        }                                                  \
+    } while (0)
+
 #pragma endregion Error Handling
 
 #pragma region Definitions and Constants
@@ -286,6 +296,9 @@ static void mcp251xfd_reset_device(MCP251XFD *dev)
     dev->chip_enable(dev, true);
     dev->spi_transfer(dev, cmd, NULL, 2); // Send reset command.
     dev->chip_enable(dev, false);
+
+    // Wait 100us for reset
+    dev->delay(100);
 }
 
 #pragma endregion SPI Communication
@@ -294,11 +307,7 @@ static void mcp251xfd_reset_device(MCP251XFD *dev)
 
 mcp251xfd_return_t mcp251xfd_request_opmode(MCP251XFD *dev, mcp251xfd_opmode_t mode)
 {
-    if (dev == NULL)
-    {
-        errorf("MCP251xFD instance pointer is null.");
-        return MCP251XFD_RETURN_INVALID_PARAM;
-    }
+    CHECK_DEV_PARAM(dev);
 
     // Read current control register value.
     uint32_t cicon = mcp251xfd_read_word(dev, MCP251XFD_REG_CICON);
@@ -309,7 +318,7 @@ mcp251xfd_return_t mcp251xfd_request_opmode(MCP251XFD *dev, mcp251xfd_opmode_t m
     // Set new mode bits.
     cicon |= (mode << MCP251XFD_CICON_REQOP_SFT) & MCP251XFD_CICON_REQOP_MASK;
 
-    // Write rquested mode back to control register.
+    // Write requested mode back to control register.
     mcp251xfd_write_word(dev, MCP251XFD_REG_CICON, cicon);
 
     return MCP251XFD_RETURN_OK;
@@ -317,11 +326,7 @@ mcp251xfd_return_t mcp251xfd_request_opmode(MCP251XFD *dev, mcp251xfd_opmode_t m
 
 mcp251xfd_return_t mcp251xfd_await_opmode(MCP251XFD *dev, mcp251xfd_opmode_t mode, uint32_t timeout_us)
 {
-    if (dev == NULL)
-    {
-        errorf("MCP251xFD instance pointer is null.");
-        return MCP251XFD_RETURN_INVALID_PARAM;
-    }
+    CHECK_DEV_PARAM(dev);
 
     uint32_t start_time = dev->time_us();
 
@@ -348,11 +353,7 @@ mcp251xfd_return_t mcp251xfd_await_opmode(MCP251XFD *dev, mcp251xfd_opmode_t mod
 
 mcp251xfd_return_t mcp251xfd_change_opmode(MCP251XFD *dev, mcp251xfd_opmode_t mode, uint32_t timeout_us)
 {
-    if (dev == NULL)
-    {
-        errorf("MCP251xFD instance pointer is null.");
-        return MCP251XFD_RETURN_INVALID_PARAM;
-    }
+    CHECK_DEV_PARAM(dev);
 
     mcp251xfd_return_t result = mcp251xfd_request_opmode(dev, mode);
     if (result != MCP251XFD_RETURN_OK)
@@ -365,11 +366,7 @@ mcp251xfd_return_t mcp251xfd_change_opmode(MCP251XFD *dev, mcp251xfd_opmode_t mo
 
 mcp251xfd_return_t mcp251xfd_get_opmode(MCP251XFD *dev, mcp251xfd_opmode_t *mode)
 {
-    if (dev == NULL)
-    {
-        errorf("MCP251xFD instance pointer is null.");
-        return MCP251XFD_RETURN_INVALID_PARAM;
-    }
+    CHECK_DEV_PARAM(dev);
 
     if (mode == NULL)
     {
@@ -391,11 +388,7 @@ mcp251xfd_return_t mcp251xfd_initialise(MCP251XFD *dev, mcp251xfd_config_t *conf
     /// Firstly validate the provided parameters.
 
     // Device is null
-    if (dev == NULL)
-    {
-        errorf("MCP251xFD instance pointer is null. Provide some memory.");
-        return MCP251XFD_RETURN_INVALID_PARAM;
-    }
+    CHECK_DEV_PARAM(dev);
 
     // Configuration pointer is null
     if (config == NULL)

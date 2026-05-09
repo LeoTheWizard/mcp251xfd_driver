@@ -191,6 +191,7 @@ struct mcp2518fd_priv
     void (*spi_transfer)(void *iface, const uint8_t *tx_data, uint8_t *rx_data, size_t length);
 
     mcp251xfd_config_t config;
+    mcp251xfd_fosc_t sysclk;
     mcp251xfd_model_t model;
 };
 
@@ -395,13 +396,54 @@ mcp251xfd_return_t mcp251xfd_get_opmode(MCP251XFD *dev, mcp251xfd_opmode_t *mode
     return MCP251XFD_RETURN_OK;
 }
 
-// static void mcp251xfd_setup_fosc(MCP251XFD *devCAN_BAUD_MAXCAN_BAUD_MAX, mcp251xfd_fosc_t fosc)
-// {
-//     // If using 4Mhz external clock, enable 10x PLL so sysclk is 40Mhz.
-//     if (fosc == MCP251XFD_FOSC_4MHZ)
-//     {
-//     }
-// }
+/**
+ * @brief Configures the oscillator of the MCP251xFD device based on the selected external clock frequency in the configuration.
+ *
+ * @param dev The MCP251xFD device instance.
+ * @param fosc The selected external clock frequency from the configuration.
+ *
+ * @return mcp251xfd_return_t indicating the result of the operation, including timeout if the oscillator fails to stabilize within the expected time.
+ */
+static mcp251xfd_return_t mcp251xfd_configure_osc(MCP251XFD *dev, mcp251xfd_fosc_t fosc)
+{
+    uint32_t osc = 0;
+    uint32_t ready_mask = MCP251XFD_OSC_OSCRDY | MCP251XFD_OSC_SCLKRDY;
+
+    // If using 4Mhz oscillator enable 10x pll to achieve 40Mhz system clock.
+    if (fosc == MCP251XFD_FOSC_4MHZ)
+    {
+        osc = MCP251XFD_OSC_PLLEN;
+        ready_mask = MCP251XFD_OSC_PLLRDY | MCP251XFD_OSC_SCLKRDY;
+    }
+
+    mcp251xfd_write_word(dev, MCP251XFD_REG_OSC, osc);
+
+    uint32_t start = dev->time_us();
+    while ((mcp251xfd_read_word(dev, MCP251XFD_REG_OSC) & ready_mask) != ready_mask)
+    {
+        if (dev->time_us() - start > 10000)
+            return MCP251XFD_RETURN_TIMEOUT;
+        dev->delay(10);
+    }
+
+    return MCP251XFD_RETURN_OK;
+}
+
+mcp251xfd_return_t mcp251xfd_set_baudrates(MCP251XFD *dev, can_baudrates_t nominal_baud, can_baudrates_t data_baud)
+{
+    CHECK_DEV_PARAM(dev);
+
+    // Validate baud rates.
+    if (nominal_baud >= CAN_BAUD_MAX || data_baud >= CAN_BAUD_MAX)
+    {
+        errorf("Invalid CAN baud rates.");
+        return MCP251XFD_RETURN_INVALID_PARAM;
+    }
+
+    // Lookup bit timing configurations for nominal and data baud rates based on the selected external clock frequency.
+
+    return MCP251XFD_RETURN_OK;
+}
 
 mcp251xfd_return_t mcp251xfd_initialise(MCP251XFD *dev, mcp251xfd_config_t *config)
 {
@@ -446,6 +488,20 @@ mcp251xfd_return_t mcp251xfd_initialise(MCP251XFD *dev, mcp251xfd_config_t *conf
 
     /// Reset device.
     mcp251xfd_reset_device(dev);
+
+    /// Configure and bring up oscillator based on selected external clock frequency.
+    if (mcp251xfd_configure_osc(dev, config->fosc) != MCP251XFD_RETURN_OK)
+    {
+        errorf("Failed to configure oscillator.");
+        return MCP251XFD_RETURN_ERROR;
+    }
+
+    /// Set nominal and data bit timings.
+    if (mcp251xfd_set_bit_timings(dev, config->nominal_baud, config->data_baud) != MCP251XFD_RETURN_OK)
+    {
+        errorf("Failed to set bit timings.");
+        return MCP251XFD_RETURN_ERROR;
+    }
 
     return MCP251XFD_RETURN_OK;
 }

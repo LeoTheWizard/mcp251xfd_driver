@@ -215,4 +215,15 @@ mcp251xfd_return_t mcp251xfd_change_opmode(MCP251XFD *dev, mcp251xfd_opmode_t mo
  */
 mcp251xfd_return_t mcp251xfd_get_opmode(MCP251XFD *dev, mcp251xfd_opmode_t *mode);
 
+/**
+ * @brief Sets the nominal and data bit timings for the CAN bus communication.
+ *
+ * @param dev The MCP251xFD device instance.
+ * @param nominal_baud The desired nominal baud rate for the arbitration phase of CAN communication.
+ * @param data_baud The desired data baud rate for the data phase of CAN FD communication.
+ *
+ * @return mcp251xfd_return_t indicating the result of the operation, including error if the baud rates are invalid or if the device is not in a mode that allows changing bit timings.
+ */
+mcp251xfd_return_t mcp251xfd_set_baudrates(MCP251XFD *dev, can_baudrates_t nominal_baud, can_baudrates_t data_baud);
+
 #endif // __MCP251XFD_H__

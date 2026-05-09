@@ -85,7 +85,8 @@ typedef enum mcp251xfd_fosc
 {
     MCP251XFD_FOSC_4MHZ,
     MCP251XFD_FOSC_20MHZ,
-    MCP251XFD_FOSC_40MHZ
+    MCP251XFD_FOSC_40MHZ,
+    MCP251XFD_FOSC_MAX
 } mcp251xfd_fosc_t;
 
 /**

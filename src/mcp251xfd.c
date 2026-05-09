@@ -86,27 +86,27 @@ static inline void errorf(const char *format, ...)
 enum mcp251xfd_registers
 {
     MCP251XFD_REG_CICON = 0x0000, // CAN Control Register
-    MCP251XFD_REG_C1NBTCFG = 0x0004,
-    MCP251XFD_REG_C1DBTCFG = 0x0008,
-    MCP251XFD_REG_C1TDC = 0x000C,
-    MCP251XFD_REG_C1TBC = 0x0010,
-    MCP251XFD_REG_C1TSCON = 0x0014,
-    MCP251XFD_REG_C1VEC = 0x0018,
-    MCP251XFD_REG_C1INT = 0x001C,
-    MCP251XFD_REG_C1RXIF = 0x0020,
-    MCP251XFD_REG_C1TXIF = 0x0024,
-    MCP251XFD_REG_C1RXOVIF = 0x0028,
-    MCP251XFD_REG_C1TXATIF = 0x002C,
-    MCP251XFD_REG_C1TXREQ = 0x0030,
-    MCP251XFD_REG_C1TREC = 0x0034,
-    MCP251XFD_REG_C1BDIAG0 = 0x0038,
-    MCP251XFD_REG_C1BDIAG1 = 0x003C,
-    MCP251XFD_REG_C1TEFCON = 0x0040,
-    MCP251XFD_REG_C1TEFSTA = 0x0044,
-    MCP251XFD_REG_C1TEFUA = 0x0048,
-    MCP251XFD_REG_C1TXQCON = 0x0050,
-    MCP251XFD_REG_C1TXQSTA = 0x0054,
-    MCP251XFD_REG_C1TXQUA = 0x0058,
+    MCP251XFD_REG_CINBTCFG = 0x0004,
+    MCP251XFD_REG_CIDBTCFG = 0x0008,
+    MCP251XFD_REG_CITDC = 0x000C,
+    MCP251XFD_REG_CITBC = 0x0010,
+    MCP251XFD_REG_CITSCON = 0x0014,
+    MCP251XFD_REG_CIVEC = 0x0018,
+    MCP251XFD_REG_CIINT = 0x001C,
+    MCP251XFD_REG_CIRXIF = 0x0020,
+    MCP251XFD_REG_CITXIF = 0x0024,
+    MCP251XFD_REG_CIRXOVIF = 0x0028,
+    MCP251XFD_REG_CITXATIF = 0x002C,
+    MCP251XFD_REG_CITXREQ = 0x0030,
+    MCP251XFD_REG_CITREC = 0x0034,
+    MCP251XFD_REG_CIBDIAG0 = 0x0038,
+    MCP251XFD_REG_CIBDIAG1 = 0x003C,
+    MCP251XFD_REG_CITEFCON = 0x0040,
+    MCP251XFD_REG_CITEFSTA = 0x0044,
+    MCP251XFD_REG_CITEFUA = 0x0048,
+    MCP251XFD_REG_CITXQCON = 0x0050,
+    MCP251XFD_REG_CITXQSTA = 0x0054,
+    MCP251XFD_REG_CITXQUA = 0x0058,
 
     // FIFOs Start
     MCP251XFD_REG_C1FIFOCON1 = 0x005C,
@@ -153,6 +153,18 @@ enum mcp251xfd_cicon_bits
 };
 #define MCP251XFD_CICON_OPMOD_SFT 21
 #define MCP251XFD_CICON_REQOP_SFT 24
+
+enum mcp251xfd_osc_bits
+{
+    MCP251XFD_OSC_PLLEN = (0x01 << 0),    // PLL Enable: 1 = 10x PLL, 0 = direct oscillator
+    MCP251XFD_OSC_OSCDIS = (0x01 << 2),   // Oscillator Disabled (MCP2518FD only): 1 = ext clock on CLKI, 0 = crystal circuit enabled
+    MCP251XFD_OSC_SCLKDIV = (0x01 << 4),  // System Clock Divisor: 0 = /1, 1 = /2
+    MCP251XFD_OSC_CLKODIV = (0x03 << 5),  // CLKO Pin Divisor: 00=/1, 01=/2, 10=/4, 11=/10
+    MCP251XFD_OSC_PLLRDY = (0x01 << 8),   // PLL Ready (read-only)
+    MCP251XFD_OSC_OSCRDY = (0x01 << 10),  // Oscillator Ready (read-only)
+    MCP251XFD_OSC_SCLKRDY = (0x01 << 12), // System Clock Ready (read-only)
+};
+#define MCP251XFD_OSC_CLKODIV_SFT 5
 
 #define MCP251XFD_REG_FIFOCON(fifo_number) (MCP251XFD_REG_C1FIFOCON1 + (fifo_number * 12))
 #define MCP251XFD_REG_FIFOSTA(fifo_number) (MCP251XFD_REG_C1FIFOSTA1 + (fifo_number * 12))
@@ -383,6 +395,14 @@ mcp251xfd_return_t mcp251xfd_get_opmode(MCP251XFD *dev, mcp251xfd_opmode_t *mode
     return MCP251XFD_RETURN_OK;
 }
 
+// static void mcp251xfd_setup_fosc(MCP251XFD *devCAN_BAUD_MAXCAN_BAUD_MAX, mcp251xfd_fosc_t fosc)
+// {
+//     // If using 4Mhz external clock, enable 10x PLL so sysclk is 40Mhz.
+//     if (fosc == MCP251XFD_FOSC_4MHZ)
+//     {
+//     }
+// }
+
 mcp251xfd_return_t mcp251xfd_initialise(MCP251XFD *dev, mcp251xfd_config_t *config)
 {
     /// Firstly validate the provided parameters.
@@ -405,5 +425,27 @@ mcp251xfd_return_t mcp251xfd_initialise(MCP251XFD *dev, mcp251xfd_config_t *conf
     }
 
     /// Validate configuration parameters.
+    if (config->fosc >= MCP251XFD_FOSC_MAX)
+    {
+        errorf("Invalid external clock frequency selection in configuration.");
+        return MCP251XFD_RETURN_INVALID_PARAM;
+    }
+
+    if (config->nominal_baud > CAN_BAUD_MAX || config->data_baud > CAN_BAUD_MAX)
+    {
+        errorf("Invalid CAN baud rate selection in configuration.");
+        return MCP251XFD_RETURN_INVALID_PARAM;
+    }
+
+    /// Set parameters.
+    dev->time_us = config->elapsed_us;
+    dev->delay = config->delay_func;
+    dev->chip_enable = config->chip_enable;
+    dev->spi_transfer = config->spi_transfer;
+    dev->config = *config; // Copy entire configuration struct.
+
+    /// Reset device.
+    mcp251xfd_reset_device(dev);
+
     return MCP251XFD_RETURN_OK;
 }

@@ -80,6 +80,7 @@ typedef enum can_baudrates
     CAN_BAUD_2MBPS,
     CAN_BAUD_4MBPS,
     CAN_BAUD_8MBPS,
+    CAN_BAUD_MAX
 } can_baudrates_t;
 
 #endif // __CAN_H__

@@ -49,30 +49,19 @@ static inline void errorf(const char *format, ...)
 #endif
 }
 
-#define TEST_DEVICE_PARAM(dev)                                                                                           \
-    do                                                                                                                   \
-    {                                                                                                                    \
-        if (dev == NULL)                                                                                                 \
-        {                                                                                                                \
-            errorf("MCP251xFD instance pointer is null.");                                                               \
-            return MCP251XFD_RETURN_INVALID_PARAM;                                                                       \
-        }                                                                                                                \
-        if (dev->initialised == false)                                                                                   \
-        {                                                                                                                \
-            errorf("MCP251xFD instance has not been initialised. Call mcp251xfd_initialise() before using the device."); \
-            return MCP251XFD_RETURN_NOT_INITIALISED;                                                                     \
-        }                                                                                                                \
+#ifdef MCP251XFD_CHECK_NULL_PARAM
+#define CHECK_NULL_PARAM(param)                    \
+    do                                             \
+    {                                              \
+        if (param == NULL)                         \
+        {                                          \
+            errorf("Null parameter: " #param);     \
+            return MCP251XFD_RETURN_INVALID_PARAM; \
+        }                                          \
     } while (0)
-
-#define CHECK_DEV_PARAM(dev)                               \
-    do                                                     \
-    {                                                      \
-        if (dev == NULL)                                   \
-        {                                                  \
-            errorf("MCP251xFD instance pointer is null."); \
-            return MCP251XFD_RETURN_INVALID_PARAM;         \
-        }                                                  \
-    } while (0)
+#else
+#define CHECK_NULL_PARAM(param) ((void)0) // No-op if null parameter checking is disabled.
+#endif
 
 #pragma endregion Error Handling
 
@@ -339,7 +328,7 @@ mcp251xfd_return_t mcp251xfd_request_opmode(MCP251XFD *dev, mcp251xfd_opmode_t m
 
 mcp251xfd_return_t mcp251xfd_await_opmode(MCP251XFD *dev, mcp251xfd_opmode_t mode, uint32_t timeout_us)
 {
-    CHECK_DEV_PARAM(dev);
+    CHECK_NULL_PARAM(dev);
 
     uint32_t start_time = dev->time_us();
 
@@ -366,7 +355,7 @@ mcp251xfd_return_t mcp251xfd_await_opmode(MCP251XFD *dev, mcp251xfd_opmode_t mod
 
 mcp251xfd_return_t mcp251xfd_change_opmode(MCP251XFD *dev, mcp251xfd_opmode_t mode, uint32_t timeout_us)
 {
-    CHECK_DEV_PARAM(dev);
+    CHECK_NULL_PARAM(dev);
 
     mcp251xfd_return_t result = mcp251xfd_request_opmode(dev, mode);
     if (result != MCP251XFD_RETURN_OK)
@@ -379,13 +368,8 @@ mcp251xfd_return_t mcp251xfd_change_opmode(MCP251XFD *dev, mcp251xfd_opmode_t mo
 
 mcp251xfd_return_t mcp251xfd_get_opmode(MCP251XFD *dev, mcp251xfd_opmode_t *mode)
 {
-    CHECK_DEV_PARAM(dev);
-
-    if (mode == NULL)
-    {
-        errorf("Output parameter for current mode cannot be null.");
-        return MCP251XFD_RETURN_INVALID_PARAM;
-    }
+    CHECK_NULL_PARAM(dev);
+    CHECK_NULL_PARAM(mode);
 
     // Read current control register value.
     uint32_t cicon = mcp251xfd_read_word(dev, MCP251XFD_REG_CICON);
@@ -426,6 +410,11 @@ static mcp251xfd_return_t mcp251xfd_configure_osc(MCP251XFD *dev, mcp251xfd_fosc
         dev->delay(10);
     }
 
+    if (fosc == MCP251XFD_FOSC_4MHZ)
+        dev->sysclk = MCP251XFD_FOSC_40MHZ;
+    else
+        dev->sysclk = fosc;
+
     return MCP251XFD_RETURN_OK;
 }
 
@@ -450,21 +439,16 @@ mcp251xfd_return_t mcp251xfd_initialise(MCP251XFD *dev, mcp251xfd_config_t *conf
     /// Firstly validate the provided parameters.
 
     // Device is null
-    CHECK_DEV_PARAM(dev);
+    CHECK_NULL_PARAM(dev);
 
     // Configuration pointer is null
-    if (config == NULL)
-    {
-        errorf("MCP251xFD configuration pointer is null. Provide a valid configuration.");
-        return MCP251XFD_RETURN_INVALID_PARAM;
-    }
+    CHECK_NULL_PARAM(config);
 
     // Function pointers are null
-    if (config->elapsed_us == NULL || config->delay_func == NULL || config->chip_enable == NULL || config->spi_transfer == NULL)
-    {
-        errorf("MCP251xFD configuration function pointers cannot be null.");
-        return MCP251XFD_RETURN_INVALID_PARAM;
-    }
+    CHECK_NULL_PARAM(config->elapsed_us);
+    CHECK_NULL_PARAM(config->delay_func);
+    CHECK_NULL_PARAM(config->chip_enable);
+    CHECK_NULL_PARAM(config->spi_transfer);
 
     /// Validate configuration parameters.
     if (config->fosc >= MCP251XFD_FOSC_MAX)

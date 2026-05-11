@@ -69,18 +69,17 @@ static inline uint8_t can_frame_get_length(const can_frame_t *frame)
  */
 typedef enum can_baudrates
 {
-    CAN_BAUD_10KBPS,
-    CAN_BAUD_20KBPS,
-    CAN_BAUD_50KBPS,
-    CAN_BAUD_100KBPS,
-    CAN_BAUD_125KBPS,
-    CAN_BAUD_250KBPS,
-    CAN_BAUD_500KBPS,
-    CAN_BAUD_1MBPS,
-    CAN_BAUD_2MBPS,
-    CAN_BAUD_4MBPS,
-    CAN_BAUD_8MBPS,
-    CAN_BAUD_MAX
+    CAN_BAUD_10KBPS  = 10000,
+    CAN_BAUD_20KBPS  = 20000,
+    CAN_BAUD_50KBPS  = 50000,
+    CAN_BAUD_100KBPS = 100000,
+    CAN_BAUD_125KBPS = 125000,
+    CAN_BAUD_250KBPS = 250000,
+    CAN_BAUD_500KBPS = 500000,
+    CAN_BAUD_1MBPS   = 1000000,
+    CAN_BAUD_2MBPS   = 2000000,
+    CAN_BAUD_4MBPS   = 4000000,
+    CAN_BAUD_8MBPS   = 8000000,
 } can_baudrates_t;
 
 #endif // __CAN_H__

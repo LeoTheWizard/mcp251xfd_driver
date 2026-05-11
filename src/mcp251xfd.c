@@ -418,18 +418,106 @@ static mcp251xfd_return_t mcp251xfd_configure_osc(MCP251XFD *dev, mcp251xfd_fosc
     return MCP251XFD_RETURN_OK;
 }
 
+
+
+/**
+ * @brief Computes a NBTCFG/DBTCFG register word for the given baud rate.
+ *
+ * Iterates BRP values 0-255 and selects the combination of TSEG1/TSEG2 that
+ * produces an exact bit period while keeping the sample point closest to 80%.
+ * All register fields are stored 0-based (actual value - 1) per the datasheet.
+ *
+ * @param tseg1_max  Maximum TSEG1 actual value (256 nominal, 32 data).
+ * @param tseg2_max  Maximum TSEG2 actual value (128 nominal, 16 data).
+ * @param sjw_max    Maximum SJW actual value   (128 nominal, 16 data).
+ * @return true on success, false if no valid combination exists.
+ */
+static bool mcp251xfd_calculate_bit_timing(MCP251XFD *dev, can_baudrates_t baud,
+                                            uint32_t tseg1_max, uint32_t tseg2_max, uint32_t sjw_max,
+                                            uint32_t *btcfg)
+{
+    uint32_t sysclk  = (uint32_t)dev->sysclk;
+    uint32_t baud_hz = (uint32_t)baud;
+
+    uint32_t best_brp = 0, best_tseg1 = 0, best_tseg2 = 0;
+    uint32_t best_sp_error = UINT32_MAX;
+    bool found = false;
+
+    for (uint32_t brp = 0; brp < 256; brp++)
+    {
+        uint32_t tq_freq = sysclk / (brp + 1);
+        if (tq_freq % baud_hz != 0)
+            continue;
+
+        uint32_t tq_total = tq_freq / baud_hz; // total TQ per bit = 1(sync) + TSEG1 + TSEG2
+        if (tq_total < 3 || tq_total > (1 + tseg1_max + tseg2_max))
+            continue;
+
+        // Target 80% sample point: TSEG2_actual ≈ tq_total × 0.20
+        uint32_t tseg2 = (tq_total + 4) / 5;
+        if (tseg2 < 1)        tseg2 = 1;
+        if (tseg2 > tseg2_max) tseg2 = tseg2_max;
+
+        uint32_t tseg1 = tq_total - 1 - tseg2;
+        if (tseg1 < 1 || tseg1 > tseg1_max)
+            continue;
+
+        // Actual sample point in tenths of a percent (0–1000).
+        uint32_t sp       = ((1 + tseg1) * 1000) / tq_total;
+        uint32_t sp_error = sp > 800 ? sp - 800 : 800 - sp;
+
+        if (!found || sp_error < best_sp_error)
+        {
+            best_sp_error = sp_error;
+            best_brp   = brp;
+            best_tseg1 = tseg1;
+            best_tseg2 = tseg2;
+            found = true;
+        }
+    }
+
+    if (!found)
+        return false;
+
+    uint32_t sjw = best_tseg2 < sjw_max ? best_tseg2 : sjw_max;
+
+    // BRP, TSEG1, TSEG2, SJW are all stored as (actual − 1) in the register.
+    *btcfg = ((best_brp)         << 24) |
+             ((best_tseg1 - 1)   << 16) |
+             ((best_tseg2 - 1)   <<  8) |
+             ((sjw - 1)          <<  0);
+
+    return true;
+}
+
 mcp251xfd_return_t mcp251xfd_set_baudrates(MCP251XFD *dev, can_baudrates_t nominal_baud, can_baudrates_t data_baud)
 {
     CHECK_DEV_PARAM(dev);
 
-    // Validate baud rates.
-    if (nominal_baud >= CAN_BAUD_MAX || data_baud >= CAN_BAUD_MAX)
+    if (nominal_baud == 0 || data_baud == 0)
     {
         errorf("Invalid CAN baud rates.");
         return MCP251XFD_RETURN_INVALID_PARAM;
     }
 
-    // Lookup bit timing configurations for nominal and data baud rates based on the selected external clock frequency.
+    uint32_t nbtcfg, dbtcfg;
+
+    // Nominal phase: TSEG1 ≤ 256, TSEG2 ≤ 128, SJW ≤ 128 (CINBTCFG datasheet limits).
+    if (!mcp251xfd_calculate_bit_timing(dev, nominal_baud, 256, 128, 128, &nbtcfg))
+    {
+        errorf("No valid nominal bit timing for selected baud rate and clock.");
+        return MCP251XFD_RETURN_INVALID_PARAM;
+    }
+
+    // Data phase: TSEG1 ≤ 32, TSEG2 ≤ 16, SJW ≤ 16 (CIDBTCFG datasheet limits).
+    if (!mcp251xfd_calculate_bit_timing(dev, data_baud, 32, 16, 16, &dbtcfg))
+    {
+        errorf("No valid data bit timing for selected baud rate and clock.");
+        return MCP251XFD_RETURN_INVALID_PARAM;
+    }
+
+    mcp251xfd_write_word(dev, MCP251XFD_REG_CINBTCFG, nbtcfg);
+    mcp251xfd_write_word(dev, MCP251XFD_REG_CIDBTCFG, dbtcfg);
 
     return MCP251XFD_RETURN_OK;
 }
@@ -451,13 +539,13 @@ mcp251xfd_return_t mcp251xfd_initialise(MCP251XFD *dev, mcp251xfd_config_t *conf
     CHECK_NULL_PARAM(config->spi_transfer);
 
     /// Validate configuration parameters.
-    if (config->fosc >= MCP251XFD_FOSC_MAX)
+    if (config->fosc == 0)
     {
         errorf("Invalid external clock frequency selection in configuration.");
         return MCP251XFD_RETURN_INVALID_PARAM;
     }
 
-    if (config->nominal_baud > CAN_BAUD_MAX || config->data_baud > CAN_BAUD_MAX)
+    if (config->nominal_baud == 0 || config->data_baud == 0)
     {
         errorf("Invalid CAN baud rate selection in configuration.");
         return MCP251XFD_RETURN_INVALID_PARAM;
@@ -481,7 +569,7 @@ mcp251xfd_return_t mcp251xfd_initialise(MCP251XFD *dev, mcp251xfd_config_t *conf
     }
 
     /// Set nominal and data bit timings.
-    if (mcp251xfd_set_bit_timings(dev, config->nominal_baud, config->data_baud) != MCP251XFD_RETURN_OK)
+    if (mcp251xfd_set_baudrates(dev, config->nominal_baud, config->data_baud) != MCP251XFD_RETURN_OK)
     {
         errorf("Failed to set bit timings.");
         return MCP251XFD_RETURN_ERROR;

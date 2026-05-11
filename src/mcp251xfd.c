@@ -201,6 +201,45 @@ enum mcp251xfd_fifocon_bits
 #define MCP251XFD_REG_FLTOBJ(filter_number) (MCP251XFD_REG_C1FLTOBJ0 + (filter_number * 8))
 #define MCP251XFD_REG_MASK0(mask_number) (MCP251XFD_REG_C1MASK0 + (mask_number * 8))
 
+// CRC-16 lookup table, polynomial 0x8005 (x^16+x^15+x^2+1), MSB-first, no reflection.
+// Used for SPI READ_CRC / WRITE_CRC commands. Update: crc = (crc<<8) ^ crc16_table[(crc>>8) ^ byte].
+// clang-format off
+static const uint16_t crc16_table[256] = {
+    0x0000, 0x8005, 0x800F, 0x000A, 0x801B, 0x001E, 0x0014, 0x8011,
+    0x8033, 0x0036, 0x003C, 0x8039, 0x0028, 0x802D, 0x8027, 0x0022,
+    0x8063, 0x0066, 0x006C, 0x8069, 0x0078, 0x807D, 0x8077, 0x0072,
+    0x0050, 0x8055, 0x805F, 0x005A, 0x804B, 0x004E, 0x0044, 0x8041,
+    0x80C3, 0x00C6, 0x00CC, 0x80C9, 0x00D8, 0x80DD, 0x80D7, 0x00D2,
+    0x00F0, 0x80F5, 0x80FF, 0x00FA, 0x80EB, 0x00EE, 0x00E4, 0x80E1,
+    0x00A0, 0x80A5, 0x80AF, 0x00AA, 0x80BB, 0x00BE, 0x00B4, 0x80B1,
+    0x8093, 0x0096, 0x009C, 0x8099, 0x0088, 0x808D, 0x8087, 0x0082,
+    0x8183, 0x0186, 0x018C, 0x8189, 0x0198, 0x819D, 0x8197, 0x0192,
+    0x01B0, 0x81B5, 0x81BF, 0x01BA, 0x81AB, 0x01AE, 0x01A4, 0x81A1,
+    0x01E0, 0x81E5, 0x81EF, 0x01EA, 0x81FB, 0x01FE, 0x01F4, 0x81F1,
+    0x81D3, 0x01D6, 0x01DC, 0x81D9, 0x01C8, 0x81CD, 0x81C7, 0x01C2,
+    0x0140, 0x8145, 0x814F, 0x014A, 0x815B, 0x015E, 0x0154, 0x8151,
+    0x8173, 0x0176, 0x017C, 0x8179, 0x0168, 0x816D, 0x8167, 0x0162,
+    0x8123, 0x0126, 0x012C, 0x8129, 0x0138, 0x813D, 0x8137, 0x0132,
+    0x0110, 0x8115, 0x811F, 0x011A, 0x810B, 0x010E, 0x0104, 0x8101,
+    0x8303, 0x0306, 0x030C, 0x8309, 0x0318, 0x831D, 0x8317, 0x0312,
+    0x0330, 0x8335, 0x833F, 0x033A, 0x832B, 0x032E, 0x0324, 0x8321,
+    0x0360, 0x8365, 0x836F, 0x036A, 0x837B, 0x037E, 0x0374, 0x8371,
+    0x8353, 0x0356, 0x035C, 0x8359, 0x0348, 0x834D, 0x8347, 0x0342,
+    0x03C0, 0x83C5, 0x83CF, 0x03CA, 0x83DB, 0x03DE, 0x03D4, 0x83D1,
+    0x83F3, 0x03F6, 0x03FC, 0x83F9, 0x03E8, 0x83ED, 0x83E7, 0x03E2,
+    0x83A3, 0x03A6, 0x03AC, 0x83A9, 0x03B8, 0x83BD, 0x83B7, 0x03B2,
+    0x0390, 0x8395, 0x839F, 0x039A, 0x838B, 0x038E, 0x0384, 0x8381,
+    0x0280, 0x8285, 0x828F, 0x028A, 0x829B, 0x029E, 0x0294, 0x8291,
+    0x82B3, 0x02B6, 0x02BC, 0x82B9, 0x02A8, 0x82AD, 0x82A7, 0x02A2,
+    0x82E3, 0x02E6, 0x02EC, 0x82E9, 0x02F8, 0x82FD, 0x82F7, 0x02F2,
+    0x02D0, 0x82D5, 0x82DF, 0x02DA, 0x82CB, 0x02CE, 0x02C4, 0x82C1,
+    0x8243, 0x0246, 0x024C, 0x8249, 0x0258, 0x825D, 0x8257, 0x0252,
+    0x0270, 0x8275, 0x827F, 0x027A, 0x826B, 0x026E, 0x0264, 0x8261,
+    0x0220, 0x8225, 0x822F, 0x022A, 0x823B, 0x023E, 0x0234, 0x8231,
+    0x8213, 0x0216, 0x021C, 0x8219, 0x0208, 0x820D, 0x8207, 0x0202,
+};
+// clang-format on
+
 #pragma endregion Definitions and Constants
 
 #pragma region Instance Lifecycle
@@ -245,6 +284,13 @@ void mcp251xfd_destroy_instance(MCP251XFD *instance)
 #pragma endregion Instance Lifecycle
 
 #pragma region SPI Communication
+
+static uint16_t crc16_compute(uint16_t crc, const uint8_t *data, size_t len)
+{
+    while (len--)
+        crc = (crc << 8) ^ crc16_table[(crc >> 8) ^ *data++];
+    return crc;
+}
 
 /**
  * @enum mcp251xfd_spi_cmds
@@ -322,6 +368,88 @@ static uint32_t mcp251xfd_read_word(MCP251XFD *dev, uint16_t reg_addr)
     uint8_t data[4];
     mcp251xfd_read_register(dev, reg_addr, data, 4);
     return (data[0] << 0) | (data[1] << 8) | (data[2] << 16) | (data[3] << 24);
+}
+
+/**
+ * @brief Writes a data buffer to the MCP251xFD device with CRC protection.
+ * Appends a CRC-16 computed over the command header and data to the SPI frame.
+ */
+static void mcp251xfd_write_register_crc(MCP251XFD *dev, uint16_t reg_addr, const uint8_t *data, size_t length)
+{
+    uint8_t cmd[3] = {
+        MCP251XFD_SPI_WRITE_CRC << 4 | ((reg_addr >> 8) & 0x0F),
+        reg_addr & 0xFF,
+        (uint8_t)(length / 4)};
+
+    uint16_t crc = crc16_compute(0xFFFF, cmd, 3);
+    crc = crc16_compute(crc, data, length);
+    uint8_t crc_bytes[2] = {(uint8_t)(crc >> 8), (uint8_t)(crc & 0xFF)};
+
+    dev->chip_enable(dev, true);
+    dev->spi_transfer(dev, cmd, NULL, 3);
+    dev->spi_transfer(dev, data, NULL, length);
+    dev->spi_transfer(dev, crc_bytes, NULL, 2);
+    dev->chip_enable(dev, false);
+}
+
+/**
+ * @brief Reads data from the MCP251xFD device with CRC verification.
+ * Sends a CRC of the command header; verifies the CRC returned by the device over the full frame.
+ *
+ * @return MCP251XFD_RETURN_OK on success, MCP251XFD_RETURN_CRC_ERROR if the received CRC does not match.
+ */
+static mcp251xfd_return_t mcp251xfd_read_register_crc(MCP251XFD *dev, uint16_t reg_addr, uint8_t *data, size_t length)
+{
+    uint8_t cmd[3] = {
+        MCP251XFD_SPI_READ_CRC << 4 | ((reg_addr >> 8) & 0x0F),
+        reg_addr & 0xFF,
+        (uint8_t)(length / 4)};
+
+    uint16_t cmd_crc = crc16_compute(0xFFFF, cmd, 3);
+    uint8_t cmd_crc_bytes[2] = {(uint8_t)(cmd_crc >> 8), (uint8_t)(cmd_crc & 0xFF)};
+    uint8_t rx_crc_bytes[2];
+
+    dev->chip_enable(dev, true);
+    dev->spi_transfer(dev, cmd, NULL, 3);
+    dev->spi_transfer(dev, cmd_crc_bytes, NULL, 2);
+    dev->spi_transfer(dev, NULL, data, length);
+    dev->spi_transfer(dev, NULL, rx_crc_bytes, 2);
+    dev->chip_enable(dev, false);
+
+    // Device CRC covers cmd header + received data.
+    uint16_t expected = crc16_compute(0xFFFF, cmd, 3);
+    expected = crc16_compute(expected, data, length);
+    uint16_t received = ((uint16_t)rx_crc_bytes[0] << 8) | rx_crc_bytes[1];
+
+    return (received == expected) ? MCP251XFD_RETURN_OK : MCP251XFD_RETURN_CRC_ERROR;
+}
+
+/**
+ * @brief Writes a 32-bit word to the specified register address with CRC protection.
+ */
+static void mcp251xfd_write_word_crc(MCP251XFD *dev, uint16_t reg_addr, uint32_t word)
+{
+    uint8_t data[4] = {
+        (word >> 0) & 0xFF,
+        (word >> 8) & 0xFF,
+        (word >> 16) & 0xFF,
+        (word >> 24) & 0xFF};
+    mcp251xfd_write_register_crc(dev, reg_addr, data, 4);
+}
+
+/**
+ * @brief Reads a 32-bit word from the specified register address with CRC verification.
+ *
+ * @param word Output pointer for the read value; only written on MCP251XFD_RETURN_OK.
+ * @return MCP251XFD_RETURN_OK on success, MCP251XFD_RETURN_CRC_ERROR on CRC mismatch.
+ */
+static mcp251xfd_return_t mcp251xfd_read_word_crc(MCP251XFD *dev, uint16_t reg_addr, uint32_t *word)
+{
+    uint8_t data[4];
+    mcp251xfd_return_t ret = mcp251xfd_read_register_crc(dev, reg_addr, data, 4);
+    if (ret == MCP251XFD_RETURN_OK)
+        *word = ((uint32_t)data[0] << 0) | ((uint32_t)data[1] << 8) | ((uint32_t)data[2] << 16) | ((uint32_t)data[3] << 24);
+    return ret;
 }
 
 /**
@@ -644,11 +772,13 @@ mcp251xfd_return_t mcp251xfd_configure_fifo(MCP251XFD *dev, uint8_t fifo_num, co
     return MCP251XFD_RETURN_OK;
 }
 
+/**
+ * @brief Zero initialises the internal RAM of the MCP251xFD device for ECC operation.
+ *
+ * @param dev The MCP251xFD device instance.
+ */
 static void mcp251xfd_initialise_ram(MCP251XFD *dev)
 {
-    // The MCP251xFD has 256 bytes of internal RAM for FIFOs, filters, and masks.
-    // This RAM is not cleared by reset and may contain random data on power-up, so we should clear it during initialisation.
-
     uint8_t zero_data[4] = {0}; // Buffer of zeros to write to RAM.
 
     for (uint16_t addr = MCP251XFD_RAM_START; addr <= MCP251XFD_RAM_END - 3; addr += 4)
@@ -659,7 +789,7 @@ static void mcp251xfd_initialise_ram(MCP251XFD *dev)
 
 mcp251xfd_return_t mcp251xfd_initialise(MCP251XFD *dev, mcp251xfd_config_t *config)
 {
-    /// Firstly validate the provided parameters.
+    /// Firstly, validate the provided parameters.
 
     // Device is null
     CHECK_NULL_PARAM(dev);

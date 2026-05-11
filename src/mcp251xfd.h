@@ -47,7 +47,8 @@ typedef enum mcp251xfd_return
 
     MCP251XFD_RETURN_TIMEOUT,      // A timeout occurred while waiting for an operation to complete.
     MCP251XFD_RETURN_TX_FIFO_FULL, // The transmit FIFO is full and cannot accept new frames for transmission.
-    MCP251XFD_RETURN_RX_FIFO_EMPTY // The receive FIFO is empty and there are no frames available to read.
+    MCP251XFD_RETURN_RX_FIFO_EMPTY, // The receive FIFO is empty and there are no frames available to read.
+    MCP251XFD_RETURN_CRC_ERROR      // CRC mismatch detected in a CRC-protected SPI read.
 } mcp251xfd_return_t;
 
 /**

@@ -1,6 +1,6 @@
 /**
  * @file mcp2518fd.h
- * @brief Interface for the MicroChip MCP251xFD family of external SPI CAN controller drivers.
+ * @brief Driver interface for the MicroChip MCP251xFD family of external SPI CAN controllers.
  *
  * @details This modules provides the ability to drive the CAN controller over SPI, allowing transmission of CAN frames on a CAN bus.
  * The MCP251xFD family of controllers support both CAN 2.0 and CAN FD frames, and this driver is designed to support both frame types.
@@ -23,6 +23,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+#include "mcp251xfd_conf.h"
 #include "can.h"
 
 /* Error handling */
@@ -83,10 +84,44 @@ void mcp251xfd_destroy_instance(MCP251XFD *instance);
  */
 typedef enum mcp251xfd_fosc
 {
-    MCP251XFD_FOSC_4MHZ  = 4000000,
+    MCP251XFD_FOSC_4MHZ = 4000000,
     MCP251XFD_FOSC_20MHZ = 20000000,
     MCP251XFD_FOSC_40MHZ = 40000000,
 } mcp251xfd_fosc_t;
+
+/**
+ * @enum mcp251xfd_plsize
+ * @brief Payload size options for a CAN message object stored in a FIFO.
+ */
+typedef enum mcp251xfd_plsize
+{
+    MCP251XFD_PLSIZE_8 = 8,
+    MCP251XFD_PLSIZE_12 = 12,
+    MCP251XFD_PLSIZE_16 = 16,
+    MCP251XFD_PLSIZE_20 = 20,
+    MCP251XFD_PLSIZE_24 = 24,
+    MCP251XFD_PLSIZE_32 = 32,
+    MCP251XFD_PLSIZE_48 = 48,
+    MCP251XFD_PLSIZE_64 = 64,
+} mcp251xfd_plsize_t;
+
+/**
+ * @struct mcp251xfd_fifo_config
+ * @brief Configuration for a single FIFO (1–31).
+ */
+typedef struct mcp251xfd_fifo_config
+{
+    bool tx;                    // true = transmit FIFO, false = receive FIFO.
+    uint8_t depth;              // Number of message objects: 1–32.
+    mcp251xfd_plsize_t payload; // Payload bytes reserved per object.
+    uint8_t tx_priority;        // Arbitration priority 0–31, TX FIFOs only.
+    bool auto_rtr;              // Auto-respond to remote frames, TX FIFOs only.
+} mcp251xfd_fifo_config_t;
+
+/**
+ * @brief Calculates the RAM usage in bytes for a FIFO configuration.
+ */
+uint8_t mcp251xfd_get_fifo_ram_usage(const mcp251xfd_fifo_config_t *config);
 
 /**
  * @struct mcp251xfd_config
@@ -118,6 +153,13 @@ typedef struct mcp251xfd_config
 
     // Initial CAN bus baud rate for the data bit timing phase. Used during CAN FD data frames when BRS is enabled.
     can_baudrates_t data_baud;
+
+    // Enable or disable ECC error correction for the internal RAM of the MCP251xFD device.
+    bool enable_ecc;
+
+    // FIFO configurations.
+    mcp251xfd_fifo_config_t *fifo_configs;
+    uint8_t fifo_count;
 
 } mcp251xfd_config_t;
 
@@ -224,5 +266,17 @@ mcp251xfd_return_t mcp251xfd_get_opmode(MCP251XFD *dev, mcp251xfd_opmode_t *mode
  * @return mcp251xfd_return_t indicating the result of the operation, including error if the baud rates are invalid or if the device is not in a mode that allows changing bit timings.
  */
 mcp251xfd_return_t mcp251xfd_set_baudrates(MCP251XFD *dev, can_baudrates_t nominal_baud, can_baudrates_t data_baud);
+
+/**
+ * @brief Configures a FIFO message object.
+ *
+ * @param dev       The MCP251xFD device instance.
+ * @param fifo_num  FIFO number to configure (1–31).
+ * @param config    FIFO configuration parameters.
+ * @param ram_used  If non-NULL, set to the number of RAM bytes consumed by this FIFO.
+ *
+ * @return mcp251xfd_return_t indicating the result of the operation.
+ */
+mcp251xfd_return_t mcp251xfd_configure_fifo(MCP251XFD *dev, uint8_t fifo_num, const mcp251xfd_fifo_config_t *config, uint32_t *ram_used);
 
 #endif // __MCP251XFD_H__

@@ -117,6 +117,9 @@ enum mcp251xfd_registers
     MCP251XFD_REG_DEVID = 0x0E14    //  DEVICE ID REGISTER
 };
 
+#define MCP251XFD_RAM_START 0x0400
+#define MCP251XFD_RAM_END 0x04FF
+
 /**
  * @enum mcp251xfd_cicon_bits
  * @brief Bit masks for the CAN Control register of the MCP251xFD device.
@@ -154,6 +157,41 @@ enum mcp251xfd_osc_bits
     MCP251XFD_OSC_SCLKRDY = (0x01 << 12), // System Clock Ready (read-only)
 };
 #define MCP251XFD_OSC_CLKODIV_SFT 5
+
+enum mcp251xfd_ecccon_bits
+{
+    MCP251XFD_ECCCON_ECCEN = (0x01 << 0),  // ECC Enable.
+    MCP251XFD_ECCCON_SECIE = (0x01 << 1),  // Single Error Correction Interrupt Enable.
+    MCP251XFD_ECCCON_DEDIE = (0x01 << 2),  // Double Error Detection Interrupt Enable.
+    MCP251XFD_ECCCON_PARITY = (0x3F << 8), // Parity bits for ECC syndrome injection.
+};
+#define MCP251XFD_ECCCON_PARITY_SFT 8
+
+enum mcp251xfd_eccstat_bits
+{
+    MCP251XFD_ECCSTAT_SECIF = (0x01 << 1),   // Single Error Correction Interrupt Flag.
+    MCP251XFD_ECCSTAT_DEDIF = (0x01 << 2),   // Double Error Detection Interrupt Flag.
+    MCP251XFD_ECCSTAT_ERRADDR = (0xFF << 8), // Low byte of RAM address where last error was detected.
+};
+#define MCP251XFD_ECCSTAT_ERRADDR_SFT 8
+
+enum mcp251xfd_fifocon_bits
+{
+    MCP251XFD_FIFOCON_FSIZE_MASK = (0x1F << 0),   // FIFO depth (0=1 obj, 31=32 obj).
+    MCP251XFD_FIFOCON_TXEN = (0x01 << 7),         // 1 = TX FIFO, 0 = RX FIFO.
+    MCP251XFD_FIFOCON_RXOVIE = (0x01 << 8),       // RX overflow interrupt enable.
+    MCP251XFD_FIFOCON_TXATIE = (0x01 << 9),       // TX attempt interrupt enable.
+    MCP251XFD_FIFOCON_TFERFFIE = (0x01 << 10),    // Empty/full interrupt enable.
+    MCP251XFD_FIFOCON_TFHRFHIE = (0x01 << 11),    // Half empty/full interrupt enable.
+    MCP251XFD_FIFOCON_TFNRFNIE = (0x01 << 12),    // Not full/not empty interrupt enable.
+    MCP251XFD_FIFOCON_FRESET = (0x01 << 13),      // Reset FIFO head/tail pointers.
+    MCP251XFD_FIFOCON_TXPRI_MASK = (0x1F << 16),  // TX message priority (TX only).
+    MCP251XFD_FIFOCON_RTREN = (0x01 << 22),       // Auto-RTR enable (TX only).
+    MCP251XFD_FIFOCON_PLSIZE_MASK = (0x07 << 24), // Payload size.
+};
+#define MCP251XFD_FIFOCON_FSIZE_SFT 0
+#define MCP251XFD_FIFOCON_TXPRI_SFT 16
+#define MCP251XFD_FIFOCON_PLSIZE_SFT 24
 
 #define MCP251XFD_REG_FIFOCON(fifo_number) (MCP251XFD_REG_C1FIFOCON1 + (fifo_number * 12))
 #define MCP251XFD_REG_FIFOSTA(fifo_number) (MCP251XFD_REG_C1FIFOSTA1 + (fifo_number * 12))
@@ -418,8 +456,6 @@ static mcp251xfd_return_t mcp251xfd_configure_osc(MCP251XFD *dev, mcp251xfd_fosc
     return MCP251XFD_RETURN_OK;
 }
 
-
-
 /**
  * @brief Computes a NBTCFG/DBTCFG register word for the given baud rate.
  *
@@ -433,10 +469,10 @@ static mcp251xfd_return_t mcp251xfd_configure_osc(MCP251XFD *dev, mcp251xfd_fosc
  * @return true on success, false if no valid combination exists.
  */
 static bool mcp251xfd_calculate_bit_timing(MCP251XFD *dev, can_baudrates_t baud,
-                                            uint32_t tseg1_max, uint32_t tseg2_max, uint32_t sjw_max,
-                                            uint32_t *btcfg)
+                                           uint32_t tseg1_max, uint32_t tseg2_max, uint32_t sjw_max,
+                                           uint32_t *btcfg)
 {
-    uint32_t sysclk  = (uint32_t)dev->sysclk;
+    uint32_t sysclk = (uint32_t)dev->sysclk;
     uint32_t baud_hz = (uint32_t)baud;
 
     uint32_t best_brp = 0, best_tseg1 = 0, best_tseg2 = 0;
@@ -455,21 +491,23 @@ static bool mcp251xfd_calculate_bit_timing(MCP251XFD *dev, can_baudrates_t baud,
 
         // Target 80% sample point: TSEG2_actual ≈ tq_total × 0.20
         uint32_t tseg2 = (tq_total + 4) / 5;
-        if (tseg2 < 1)        tseg2 = 1;
-        if (tseg2 > tseg2_max) tseg2 = tseg2_max;
+        if (tseg2 < 1)
+            tseg2 = 1;
+        if (tseg2 > tseg2_max)
+            tseg2 = tseg2_max;
 
         uint32_t tseg1 = tq_total - 1 - tseg2;
         if (tseg1 < 1 || tseg1 > tseg1_max)
             continue;
 
         // Actual sample point in tenths of a percent (0–1000).
-        uint32_t sp       = ((1 + tseg1) * 1000) / tq_total;
+        uint32_t sp = ((1 + tseg1) * 1000) / tq_total;
         uint32_t sp_error = sp > 800 ? sp - 800 : 800 - sp;
 
         if (!found || sp_error < best_sp_error)
         {
             best_sp_error = sp_error;
-            best_brp   = brp;
+            best_brp = brp;
             best_tseg1 = tseg1;
             best_tseg2 = tseg2;
             found = true;
@@ -482,10 +520,10 @@ static bool mcp251xfd_calculate_bit_timing(MCP251XFD *dev, can_baudrates_t baud,
     uint32_t sjw = best_tseg2 < sjw_max ? best_tseg2 : sjw_max;
 
     // BRP, TSEG1, TSEG2, SJW are all stored as (actual − 1) in the register.
-    *btcfg = ((best_brp)         << 24) |
-             ((best_tseg1 - 1)   << 16) |
-             ((best_tseg2 - 1)   <<  8) |
-             ((sjw - 1)          <<  0);
+    *btcfg = ((best_brp) << 24) |
+             ((best_tseg1 - 1) << 16) |
+             ((best_tseg2 - 1) << 8) |
+             ((sjw - 1) << 0);
 
     return true;
 }
@@ -520,6 +558,103 @@ mcp251xfd_return_t mcp251xfd_set_baudrates(MCP251XFD *dev, can_baudrates_t nomin
     mcp251xfd_write_word(dev, MCP251XFD_REG_CIDBTCFG, dbtcfg);
 
     return MCP251XFD_RETURN_OK;
+}
+
+uint8_t mcp251xfd_get_fifo_ram_usage(const mcp251xfd_fifo_config_t *config)
+{
+    return config->depth * (8 + (uint8_t)config->payload);
+}
+
+mcp251xfd_return_t mcp251xfd_configure_fifo(MCP251XFD *dev, uint8_t fifo_num, const mcp251xfd_fifo_config_t *config, uint32_t *ram_used)
+{
+    CHECK_NULL_PARAM(dev);
+    CHECK_NULL_PARAM(config);
+
+    if (fifo_num < 1 || fifo_num > 31)
+    {
+        errorf("FIFO number must be 1-31.");
+        return MCP251XFD_RETURN_INVALID_PARAM;
+    }
+
+    if (config->depth < 1 || config->depth > 32)
+    {
+        errorf("FIFO depth must be 1-32.");
+        return MCP251XFD_RETURN_INVALID_PARAM;
+    }
+
+    if (config->tx && config->tx_priority > 31)
+    {
+        errorf("TX priority must be 0-31.");
+        return MCP251XFD_RETURN_INVALID_PARAM;
+    }
+
+    uint8_t plsize;
+    switch (config->payload)
+    {
+    case MCP251XFD_PLSIZE_8:
+        plsize = 0;
+        break;
+    case MCP251XFD_PLSIZE_12:
+        plsize = 1;
+        break;
+    case MCP251XFD_PLSIZE_16:
+        plsize = 2;
+        break;
+    case MCP251XFD_PLSIZE_20:
+        plsize = 3;
+        break;
+    case MCP251XFD_PLSIZE_24:
+        plsize = 4;
+        break;
+    case MCP251XFD_PLSIZE_32:
+        plsize = 5;
+        break;
+    case MCP251XFD_PLSIZE_48:
+        plsize = 6;
+        break;
+    case MCP251XFD_PLSIZE_64:
+        plsize = 7;
+        break;
+    default:
+        errorf("Invalid FIFO payload size.");
+        return MCP251XFD_RETURN_INVALID_PARAM;
+    }
+
+    uint32_t fifocon = 0;
+
+    fifocon |= ((config->depth - 1) << MCP251XFD_FIFOCON_FSIZE_SFT) & MCP251XFD_FIFOCON_FSIZE_MASK;
+    fifocon |= (plsize << MCP251XFD_FIFOCON_PLSIZE_SFT) & MCP251XFD_FIFOCON_PLSIZE_MASK;
+    fifocon |= MCP251XFD_FIFOCON_FRESET;
+
+    if (config->tx)
+    {
+        fifocon |= MCP251XFD_FIFOCON_TXEN;
+        fifocon |= (config->tx_priority << MCP251XFD_FIFOCON_TXPRI_SFT) & MCP251XFD_FIFOCON_TXPRI_MASK;
+        if (config->auto_rtr)
+            fifocon |= MCP251XFD_FIFOCON_RTREN;
+    }
+
+    // Each message object = 8-byte header (T0+T1) + payload bytes.
+    if (ram_used)
+        *ram_used = mcp251xfd_get_fifo_ram_usage(config);
+
+    // FIFO register macro is 0-based from FIFO 1; fifo_num is 1-based.
+    mcp251xfd_write_word(dev, MCP251XFD_REG_FIFOCON(fifo_num - 1), fifocon);
+
+    return MCP251XFD_RETURN_OK;
+}
+
+static void mcp251xfd_initialise_ram(MCP251XFD *dev)
+{
+    // The MCP251xFD has 256 bytes of internal RAM for FIFOs, filters, and masks.
+    // This RAM is not cleared by reset and may contain random data on power-up, so we should clear it during initialisation.
+
+    uint8_t zero_data[4] = {0}; // Buffer of zeros to write to RAM.
+
+    for (uint16_t addr = MCP251XFD_RAM_START; addr <= MCP251XFD_RAM_END - 3; addr += 4)
+    {
+        mcp251xfd_write_register(dev, addr, zero_data, 4);
+    }
 }
 
 mcp251xfd_return_t mcp251xfd_initialise(MCP251XFD *dev, mcp251xfd_config_t *config)
@@ -575,5 +710,74 @@ mcp251xfd_return_t mcp251xfd_initialise(MCP251XFD *dev, mcp251xfd_config_t *conf
         return MCP251XFD_RETURN_ERROR;
     }
 
+    if (config->enable_ecc)
+    {
+        mcp251xfd_initialise_ram(dev);
+        // Enable ECC with 1-bit correction and 2-bit detection capability.
+        mcp251xfd_write_word(dev, MCP251XFD_REG_ECCCON, MCP251XFD_ECCCON_ECCEN | MCP251XFD_ECCCON_SECIE | MCP251XFD_ECCCON_DEDIE);
+    }
+    else
+    {
+        // Disable ECC to reduce latency.
+        mcp251xfd_write_word(dev, MCP251XFD_REG_ECCCON, 0x00);
+    }
+
+    /// Configure FIFOs.
+    if (config->fifo_count > 0)
+    {
+        CHECK_NULL_PARAM(config->fifo_configs);
+
+        if (config->fifo_count > 31)
+        {
+            errorf("fifo_count exceeds maximum of 31.");
+            return MCP251XFD_RETURN_INVALID_PARAM;
+        }
+
+        // Pre-flight RAM check before touching any registers.
+        uint32_t total_ram = 0;
+        const uint32_t ram_available = MCP251XFD_RAM_END - MCP251XFD_RAM_START + 1;
+        for (uint8_t i = 0; i < config->fifo_count; i++)
+            total_ram += mcp251xfd_get_fifo_ram_usage(&config->fifo_configs[i]);
+
+        if (total_ram > ram_available)
+        {
+            errorf("FIFO configuration requires %u bytes but only %u are available.", total_ram, ram_available);
+            return MCP251XFD_RETURN_INVALID_PARAM;
+        }
+
+        for (uint8_t i = 0; i < config->fifo_count; i++)
+        {
+            mcp251xfd_return_t result = mcp251xfd_configure_fifo(dev, i + 1, &config->fifo_configs[i], NULL);
+            if (result != MCP251XFD_RETURN_OK)
+            {
+                errorf("Failed to configure FIFO %u.", i + 1);
+                return result;
+            }
+        }
+    }
+    else
+    {
+        // If no FIFOs configured enable TX queue and one RX FIFO at maximum depth with 64-byte payload.
+
+        // Enable TX queue in CiCON (config mode only).
+        uint32_t cicon = mcp251xfd_read_word(dev, MCP251XFD_REG_CICON);
+        mcp251xfd_write_word(dev, MCP251XFD_REG_CICON, cicon | MCP251XFD_CICON_TXQEN);
+
+        // TX queue: depth=32 (FSIZE=31), payload=64 (PLSIZE=7), reset head/tail.
+        uint32_t txqcon = (31 << MCP251XFD_FIFOCON_FSIZE_SFT) |
+                          (7 << MCP251XFD_FIFOCON_PLSIZE_SFT) |
+                          MCP251XFD_FIFOCON_FRESET;
+        mcp251xfd_write_word(dev, MCP251XFD_REG_CITXQCON, txqcon);
+
+        // FIFO 1 as RX: depth=32, payload=64.
+        mcp251xfd_fifo_config_t default_rx = {
+            .tx = false,
+            .depth = 32,
+            .payload = MCP251XFD_PLSIZE_64,
+        };
+        mcp251xfd_configure_fifo(dev, 1, &default_rx, NULL);
+    }
+
+    dev->initialised = true;
     return MCP251XFD_RETURN_OK;
 }

@@ -475,7 +475,7 @@ static void mcp251xfd_reset_device(MCP251XFD *dev)
 
 mcp251xfd_return_t mcp251xfd_request_opmode(MCP251XFD *dev, mcp251xfd_opmode_t mode)
 {
-    CHECK_DEV_PARAM(dev);
+    CHECK_NULL_PARAM(dev);
 
     // Read current control register value.
     uint32_t cicon = mcp251xfd_read_word(dev, MCP251XFD_REG_CICON);

@@ -357,6 +357,7 @@ struct mcp2518fd_priv
     mcp251xfd_config_t config;
     mcp251xfd_fosc_t sysclk;
     mcp251xfd_model_t model;
+    bool tef_timestamps; // True if TEF was configured with timestamps=true.
 };
 
 MCP251XFD *mcp251xfd_create_instance(void)
@@ -563,8 +564,8 @@ static void mcp251xfd_reset_device(MCP251XFD *dev)
     dev->spi_transfer(dev->iface, cmd, NULL, 2); // Send reset command.
     dev->chip_enable(dev->iface, false);
 
-    // Wait 100us for reset
-    dev->delay(100);
+    // 2 ms: enough for the SPI interface and oscillator to reinitialise after reset.
+    dev->delay(2000);
 }
 
 #pragma endregion SPI Communication
@@ -654,17 +655,18 @@ mcp251xfd_return_t mcp251xfd_get_opmode(MCP251XFD *dev, mcp251xfd_opmode_t *mode
  */
 static mcp251xfd_return_t mcp251xfd_configure_osc(MCP251XFD *dev, mcp251xfd_fosc_t fosc)
 {
-    uint32_t osc = 0;
     uint32_t ready_mask = MCP251XFD_OSC_OSCRDY | MCP251XFD_OSC_SCLKRDY;
 
-    // If using 4Mhz oscillator enable 10x pll to achieve 40Mhz system clock.
     if (fosc == MCP251XFD_FOSC_4MHZ)
     {
-        osc = MCP251XFD_OSC_PLLEN;
+        // Enable the 10x PLL via read-modify-write so other OSC bits are undisturbed.
+        uint32_t osc = mcp251xfd_read_word(dev, MCP251XFD_REG_OSC);
+        mcp251xfd_write_word(dev, MCP251XFD_REG_OSC, osc | MCP251XFD_OSC_PLLEN);
         ready_mask = MCP251XFD_OSC_PLLRDY | MCP251XFD_OSC_SCLKRDY;
     }
-
-    mcp251xfd_write_word(dev, MCP251XFD_REG_OSC, osc);
+    // For 20/40 MHz there is nothing to write: the oscillator is already running
+    // after reset and writing to OSC disturbs CLKODIV (reset = /10), which causes
+    // SCLKRDY to briefly deassert and can cause a spurious timeout.
 
     uint32_t start = dev->time_us();
     while ((mcp251xfd_read_word(dev, MCP251XFD_REG_OSC) & ready_mask) != ready_mask)
@@ -674,11 +676,7 @@ static mcp251xfd_return_t mcp251xfd_configure_osc(MCP251XFD *dev, mcp251xfd_fosc
         dev->delay(10);
     }
 
-    if (fosc == MCP251XFD_FOSC_4MHZ)
-        dev->sysclk = MCP251XFD_FOSC_40MHZ;
-    else
-        dev->sysclk = fosc;
-
+    dev->sysclk = (fosc == MCP251XFD_FOSC_4MHZ) ? MCP251XFD_FOSC_40MHZ : fosc;
     return MCP251XFD_RETURN_OK;
 }
 
@@ -1256,8 +1254,11 @@ static mcp251xfd_return_t mcp251xfd_read_rx_object(MCP251XFD *dev, uint8_t fifo_
     uint32_t t0 = mcp251xfd_read_word(dev, obj_addr);
     uint32_t t1 = mcp251xfd_read_word(dev, obj_addr + 4);
 
-    bool extended;
-    frame->id    = mcp251xfd_unpack_id(t0, &extended);
+    // IDE is in T1[4] for received message objects; T0[30] is unimplemented (always 0).
+    bool extended = (t1 & MCP251XFD_T1_IDE) != 0;
+    frame->id = extended
+        ? (((t0 & 0x7FF) << 18) | ((t0 >> 11) & 0x3FFFF))
+        : (t0 & 0x7FF);
     frame->flags = 0;
     if (extended)                    frame->flags |= CAN_FRAME_FLAG_EEF;
     if (t1 & MCP251XFD_T1_FDF)      frame->flags |= CAN_FRAME_FLAG_FDF;
@@ -1501,6 +1502,7 @@ mcp251xfd_return_t mcp251xfd_enable_tef(MCP251XFD *dev, const mcp251xfd_tef_conf
         tefcon |= MCP251XFD_TEFCON_TXTS;
     mcp251xfd_write_word(dev, MCP251XFD_REG_CITEFCON, tefcon);
 
+    dev->tef_timestamps = config->timestamps;
     return MCP251XFD_RETURN_OK;
 }
 
@@ -1518,15 +1520,21 @@ mcp251xfd_return_t mcp251xfd_read_tef(MCP251XFD *dev, mcp251xfd_tef_entry_t *ent
     uint32_t t0 = mcp251xfd_read_word(dev, obj_addr);
     uint32_t t1 = mcp251xfd_read_word(dev, obj_addr + 4);
 
-    bool extended;
-    entry->id        = mcp251xfd_unpack_id(t0, &extended);
+    // IDE is in T1[4]; T0[30] is unimplemented in TEF objects (always 0).
+    bool extended = (t1 & MCP251XFD_T1_IDE) != 0;
+    entry->id = extended
+        ? (((t0 & 0x7FF) << 18) | ((t0 >> 11) & 0x3FFFF))
+        : (t0 & 0x7FF);
     entry->flags     = 0;
     if (extended)               entry->flags |= CAN_FRAME_FLAG_EEF;
     if (t1 & MCP251XFD_T1_FDF) entry->flags |= CAN_FRAME_FLAG_FDF;
     if (t1 & MCP251XFD_T1_BRS) entry->flags |= CAN_FRAME_FLAG_BRS;
     if (t1 & MCP251XFD_T1_ESI) entry->flags |= CAN_FRAME_FLAG_ESI;
     entry->dlc       = (uint8_t)(t1 & MCP251XFD_T1_DLC_MASK);
-    entry->timestamp = (uint16_t)((t1 >> MCP251XFD_T1_TIMESTAMP_SFT) & 0xFFFF);
+    // TEF timestamp is in T2 (word at +8), not T1[31:16] (which is SEQ in TEF format).
+    entry->timestamp = dev->tef_timestamps
+        ? (uint16_t)(mcp251xfd_read_word(dev, obj_addr + 8) & 0xFFFF)
+        : 0;
 
     // Advance TEF read pointer.
     uint32_t tefcon = mcp251xfd_read_word(dev, MCP251XFD_REG_CITEFCON);

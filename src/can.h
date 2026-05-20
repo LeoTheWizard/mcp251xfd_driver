@@ -25,7 +25,7 @@
  *        - CAN_FRAME_FLAG_BRS (0x04): Indicates that the frame uses Bit Rate Switching (BRS), which allows for a higher data rate during the data phase of a CAN FD frame.
  *        - CAN_FRAME_FLAG_ESI (0x08): Indicates that the frame has the Error State Indicator (ESI) flag set, which is used in CAN FD to indicate the error state of the transmitting node.
  */
-typedef enum can_frame_flags : uint8_t
+typedef enum can_frame_flags
 {
     CAN_FRAME_FLAG_EEF = 0x01, // Extended Frame Format (EFF) flag
     CAN_FRAME_FLAG_FDF = 0x02, // CAN FD Frame (FDF) flag
@@ -69,17 +69,17 @@ static inline uint8_t can_frame_get_length(const can_frame_t *frame)
  */
 typedef enum can_baudrates
 {
-    CAN_BAUD_10KBPS  = 10000,
-    CAN_BAUD_20KBPS  = 20000,
-    CAN_BAUD_50KBPS  = 50000,
+    CAN_BAUD_10KBPS = 10000,
+    CAN_BAUD_20KBPS = 20000,
+    CAN_BAUD_50KBPS = 50000,
     CAN_BAUD_100KBPS = 100000,
     CAN_BAUD_125KBPS = 125000,
     CAN_BAUD_250KBPS = 250000,
     CAN_BAUD_500KBPS = 500000,
-    CAN_BAUD_1MBPS   = 1000000,
-    CAN_BAUD_2MBPS   = 2000000,
-    CAN_BAUD_4MBPS   = 4000000,
-    CAN_BAUD_8MBPS   = 8000000,
+    CAN_BAUD_1MBPS = 1000000,
+    CAN_BAUD_2MBPS = 2000000,
+    CAN_BAUD_4MBPS = 4000000,
+    CAN_BAUD_8MBPS = 8000000,
 } can_baudrates_t;
 
 #endif // __CAN_H__

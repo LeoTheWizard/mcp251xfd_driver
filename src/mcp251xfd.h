@@ -146,6 +146,10 @@ typedef struct mcp251xfd_config
                          uint8_t *rx_data,       // Recieve data buffer.
                          size_t length);         // Length of the data to be transferred in bytes.
 
+    // Opaque pointer passed verbatim as the first argument to chip_enable and spi_transfer.
+    // Use this to carry your SPI peripheral handle, GPIO port, or any other hardware context.
+    void *iface;
+
     // External clock frequency selection for the MCP251xFD device. Select the correct frequency based on your board design.
     mcp251xfd_fosc_t fosc;
 
@@ -702,6 +706,171 @@ mcp251xfd_return_t mcp251xfd_gpio_set_int_open_drain(MCP251XFD *dev,
  */
 mcp251xfd_return_t mcp251xfd_gpio_set_sof_output(MCP251XFD *dev,
                                                  bool enable);
+
+#pragma endregion
+
+/**
+ * Device Identification
+ */
+
+/**
+ * @brief Reads the DEVID register and identifies whether the device is an MCP2517FD or MCP2518FD.
+ * Also updates the model field on the device instance for use by other driver functions.
+ *
+ * @param dev   The MCP251xFD device instance.
+ * @param model Pointer to store the identified model.
+ *
+ * @return mcp251xfd_return_t indicating the result of the operation, or ERROR if the device ID is unrecognised.
+ */
+mcp251xfd_return_t mcp251xfd_get_model(MCP251XFD *dev,
+                                       mcp251xfd_model_t *model);
+
+/**
+ * Transmit Event FIFO (TEF)
+ *
+ * The TEF records a brief entry for each successfully transmitted frame without consuming
+ * message-RAM payload space. Useful for TX timestamping and bus-load diagnostics.
+ */
+#pragma region Transmit Event FIFO
+
+/**
+ * @struct mcp251xfd_tef_config
+ * @brief Configuration for the Transmit Event FIFO.
+ */
+typedef struct mcp251xfd_tef_config
+{
+    uint8_t depth;   // Number of TEF entries: 1–32.
+    bool timestamps; // Record a hardware timestamp in each TEF entry.
+} mcp251xfd_tef_config_t;
+
+/**
+ * @struct mcp251xfd_tef_entry
+ * @brief A single entry read from the Transmit Event FIFO.
+ */
+typedef struct mcp251xfd_tef_entry
+{
+    uint32_t id;             // Frame identifier (11-bit or 29-bit depending on flags).
+    can_frame_flags_t flags; // Frame flags (EFF, FDF, BRS, ESI).
+    uint8_t dlc;             // Data length code of the transmitted frame.
+    uint16_t timestamp;      // Hardware timestamp at transmission; valid only if TEF was configured with timestamps=true.
+} mcp251xfd_tef_entry_t;
+
+/**
+ * @brief Enables and configures the Transmit Event FIFO.
+ * Must be called while the device is in configuration mode.
+ *
+ * @param dev    The MCP251xFD device instance.
+ * @param config TEF configuration parameters.
+ *
+ * @return mcp251xfd_return_t indicating the result of the operation.
+ */
+mcp251xfd_return_t mcp251xfd_enable_tef(MCP251XFD *dev,
+                                        const mcp251xfd_tef_config_t *config);
+
+/**
+ * @brief Reads the oldest entry from the Transmit Event FIFO and advances the read pointer.
+ *
+ * @param dev   The MCP251xFD device instance.
+ * @param entry Pointer to store the retrieved TEF entry.
+ *
+ * @return mcp251xfd_return_t — OK on success, RX_FIFO_EMPTY if the TEF has no entries.
+ */
+mcp251xfd_return_t mcp251xfd_read_tef(MCP251XFD *dev,
+                                      mcp251xfd_tef_entry_t *entry);
+
+#pragma endregion
+
+/**
+ * Time Base Counter
+ */
+
+/**
+ * @brief Reads the current value of the 32-bit hardware Time Base Counter (CiTBC).
+ * The counter must have been enabled via CiTSCON.TBCEN before calling this function.
+ *
+ * @param dev       The MCP251xFD device instance.
+ * @param timestamp Pointer to store the current counter value.
+ *
+ * @return mcp251xfd_return_t indicating the result of the operation.
+ */
+mcp251xfd_return_t mcp251xfd_get_timestamp(MCP251XFD *dev,
+                                           uint32_t *timestamp);
+
+/**
+ * Wake-up Filter
+ */
+
+/**
+ * @enum mcp251xfd_wakeup_filter
+ * @brief Selects the CAN bus activity glitch filter applied during sleep mode (CiCON.WFT).
+ */
+typedef enum mcp251xfd_wakeup_filter
+{
+    MCP251XFD_WAKEUP_FILTER_T11 = 0, // Wake if T1 + T2 > 5 × TQ.
+    MCP251XFD_WAKEUP_FILTER_T1 = 1,  // Wake if T1 > 6 × TQ.
+    MCP251XFD_WAKEUP_FILTER_T2 = 2,  // Wake if T2 > 6 × TQ.
+    MCP251XFD_WAKEUP_FILTER_T12 = 3, // Wake if T1 + T2 > 10 × TQ.
+} mcp251xfd_wakeup_filter_t;
+
+/**
+ * @brief Configures the CAN bus wake-up filter used when the device is in sleep mode.
+ * When enabled, only bus activity that passes the selected glitch filter will wake the device.
+ *
+ * @param dev    The MCP251xFD device instance.
+ * @param enable true to enable the wake-up filter, false to disable.
+ * @param filter Glitch filter time selection (ignored when enable is false).
+ *
+ * @return mcp251xfd_return_t indicating the result of the operation.
+ */
+mcp251xfd_return_t mcp251xfd_configure_wakeup(MCP251XFD *dev,
+                                              bool enable,
+                                              mcp251xfd_wakeup_filter_t filter);
+
+/**
+ * Bus Diagnostics
+ *
+ * CiBDIAG0 and CiBDIAG1 accumulate per-phase error counts and per-type error flags
+ * since the last read. Reading the registers clears them.
+ */
+#pragma region Bus Diagnostics
+
+/**
+ * @struct mcp251xfd_diagnostics
+ * @brief Decoded contents of CiBDIAG0 and CiBDIAG1.
+ */
+typedef struct mcp251xfd_diagnostics
+{
+    uint8_t nominal_rx_errors;  // Nominal-phase receive error count since last read.
+    uint8_t nominal_tx_errors;  // Nominal-phase transmit error count since last read.
+    uint8_t data_rx_errors;     // Data-phase receive error count since last read.
+    uint8_t data_tx_errors;     // Data-phase transmit error count since last read.
+    uint16_t error_frame_count; // Total error frames detected since last read.
+    bool nbit0_err;             // Nominal phase: bit 0 error.
+    bool nbit1_err;             // Nominal phase: bit 1 error.
+    bool nack_err;              // Nominal phase: ACK error.
+    bool nform_err;             // Nominal phase: form error.
+    bool nstuff_err;            // Nominal phase: stuff error.
+    bool ncrc_err;              // Nominal phase: CRC error.
+    bool txbo_err;              // Node entered bus-off since last read.
+    bool dbit0_err;             // Data phase: bit 0 error.
+    bool dbit1_err;             // Data phase: bit 1 error.
+    bool dform_err;             // Data phase: form error.
+    bool dstuff_err;            // Data phase: stuff error.
+    bool dcrc_err;              // Data phase: CRC error.
+    bool esi;                   // ESI flag was set on the last received FD frame.
+    bool dlc_mismatch;          // Received DLC exceeded the configured payload size.
+} mcp251xfd_diagnostics_t;
+
+/**
+ * @brief Reads and clears the bus diagnostic registers (CiBDIAG0 / CiBDIAG1).
+ *
+ * @param dev  The MCP251xFD device instance.
+ * @param diag Pointer to store the decoded diagnostic data.
+ *
+ * @return mcp251xfd_return_t indicating the result of the operation.
+ */
+mcp251xfd_return_t mcp251xfd_read_diagnostics(MCP251XFD *dev,
+                                              mcp251xfd_diagnostics_t *diag);
 
 #pragma endregion
 

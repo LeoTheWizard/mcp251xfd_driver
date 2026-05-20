@@ -118,7 +118,7 @@ enum mcp251xfd_registers
 };
 
 #define MCP251XFD_RAM_START 0x0400
-#define MCP251XFD_RAM_END 0x04FF
+#define MCP251XFD_RAM_END 0x0BFF // MCP251xFD has 2 KB of message RAM (0x0400–0x0BFF).
 
 /**
  * @enum mcp251xfd_cicon_bits
@@ -185,6 +185,8 @@ enum mcp251xfd_fifocon_bits
     MCP251XFD_FIFOCON_TFHRFHIE = (0x01 << 11),    // Half empty/full interrupt enable.
     MCP251XFD_FIFOCON_TFNRFNIE = (0x01 << 12),    // Not full/not empty interrupt enable.
     MCP251XFD_FIFOCON_FRESET = (0x01 << 13),      // Reset FIFO head/tail pointers.
+    MCP251XFD_FIFOCON_UINC   = (0x01 << 14),      // User Increment — advance FIFO pointer after object read/write.
+    MCP251XFD_FIFOCON_TXREQ  = (0x01 << 15),      // TX Request — start transmission (TX FIFOs only).
     MCP251XFD_FIFOCON_TXPRI_MASK = (0x1F << 16),  // TX message priority (TX only).
     MCP251XFD_FIFOCON_RTREN = (0x01 << 22),       // Auto-RTR enable (TX only).
     MCP251XFD_FIFOCON_PLSIZE_MASK = (0x07 << 24), // Payload size.
@@ -200,6 +202,101 @@ enum mcp251xfd_fifocon_bits
 #define MCP251XFD_REG_FLTCON(filter_number) (MCP251XFD_REG_C1FLTCON0 + (filter_number * 4))
 #define MCP251XFD_REG_FLTOBJ(filter_number) (MCP251XFD_REG_C1FLTOBJ0 + (filter_number * 8))
 #define MCP251XFD_REG_MASK0(mask_number) (MCP251XFD_REG_C1MASK0 + (mask_number * 8))
+
+// CiFIFOSTAn bit positions (bit 3 is TXATIF for TX FIFOs and RXOVIF for RX FIFOs).
+enum mcp251xfd_fifosta_bits
+{
+    MCP251XFD_FIFOSTA_NVIF    = (1 << 0), // TX: not full; RX: not empty.
+    MCP251XFD_FIFOSTA_HVIF    = (1 << 1), // Half-empty (TX) / half-full (RX).
+    MCP251XFD_FIFOSTA_EFIF    = (1 << 2), // TX: empty; RX: full.
+    MCP251XFD_FIFOSTA_TXATIF  = (1 << 3), // TX attempt interrupt flag (TX FIFOs).
+    MCP251XFD_FIFOSTA_RXOVIF  = (1 << 3), // RX overflow flag (RX FIFOs).
+    MCP251XFD_FIFOSTA_TXERIF  = (1 << 4), // TX error flag (TX FIFOs).
+    MCP251XFD_FIFOSTA_TXLARIF = (1 << 5), // TX lost arbitration flag (TX FIFOs).
+    MCP251XFD_FIFOSTA_TXABT   = (1 << 6), // TX message aborted (TX FIFOs).
+};
+
+// Message object T1 word bit positions (shared by TX and RX objects).
+// RX objects additionally carry FILHIT[4:0] at bits 15:11 and TIMESTAMP[15:0] at bits 31:16.
+#define MCP251XFD_T1_DLC_MASK       (0x0F << 0)
+#define MCP251XFD_T1_IDE            (1 << 4)
+#define MCP251XFD_T1_RTR            (1 << 5)
+#define MCP251XFD_T1_BRS            (1 << 6)
+#define MCP251XFD_T1_FDF            (1 << 7)
+#define MCP251XFD_T1_ESI            (1 << 8)
+#define MCP251XFD_T1_FILHIT_SFT     11
+#define MCP251XFD_T1_FILHIT_MASK    (0x1F << 11)
+#define MCP251XFD_T1_TIMESTAMP_SFT  16
+#define MCP251XFD_T1_TIMESTAMP_MASK (0xFFFFUL << 16)
+
+// IOCON register (0x0E04) bit positions.
+enum mcp251xfd_iocon_bits
+{
+    MCP251XFD_IOCON_TRIS0   = (1 << 0),  // GPIO0 direction: 1=input, 0=output.
+    MCP251XFD_IOCON_TRIS1   = (1 << 1),  // GPIO1 direction: 1=input, 0=output.
+    MCP251XFD_IOCON_TXCANOD = (1 << 4),  // TXCAN pin open-drain mode.
+    MCP251XFD_IOCON_SOF     = (1 << 5),  // SOF signal output on GPIO1/CLKO.
+    MCP251XFD_IOCON_INTOD   = (1 << 6),  // INT pin open-drain mode.
+    MCP251XFD_IOCON_LAT0    = (1 << 8),  // GPIO0 output latch (driven value).
+    MCP251XFD_IOCON_LAT1    = (1 << 9),  // GPIO1 output latch.
+    MCP251XFD_IOCON_GPIO0   = (1 << 16), // GPIO0 input read-back (sampled value).
+    MCP251XFD_IOCON_GPIO1   = (1 << 17), // GPIO1 input read-back.
+    MCP251XFD_IOCON_PM0     = (1 << 24), // GPIO0 pin mode: 1=GPIO, 0=INT1 alternate.
+    MCP251XFD_IOCON_PM1     = (1 << 25), // GPIO1 pin mode: 1=GPIO, 0=CLKO alternate.
+};
+
+// CiTREC register (0x0034) bit positions.
+#define MCP251XFD_TREC_REC_MASK (0xFF << 0)  // Receive error counter.
+#define MCP251XFD_TREC_TEC_MASK (0xFF << 8)  // Transmit error counter.
+#define MCP251XFD_TREC_EWARN    (1 << 16)    // Warning: TEC or REC >= 96.
+#define MCP251XFD_TREC_RXWARN   (1 << 17)    // REC >= 96.
+#define MCP251XFD_TREC_TXWARN   (1 << 18)    // TEC >= 96.
+#define MCP251XFD_TREC_RXBP     (1 << 19)    // REC >= 128, receive error-passive.
+#define MCP251XFD_TREC_TXBP     (1 << 20)    // TEC >= 128, transmit error-passive.
+#define MCP251XFD_TREC_TXBO     (1 << 21)    // TEC > 255, bus-off.
+
+// CiCON wake-up filter shift (WFT field is bits 10:9, mask already defined as MCP251XFD_CICON_WFT).
+#define MCP251XFD_CICON_WFT_SFT 9
+
+// CiTEFCON register (0x0040) bit positions.
+enum mcp251xfd_tefcon_bits
+{
+    MCP251XFD_TEFCON_FSIZE_MASK = (0x1F << 0), // TEF depth (0=1 entry, 31=32 entries).
+    MCP251XFD_TEFCON_TXTS      = (1 << 5),     // Record TX timestamp in each TEF entry.
+    MCP251XFD_TEFCON_RXOVIE    = (1 << 8),     // Overflow interrupt enable.
+    MCP251XFD_TEFCON_TEFERFFIE = (1 << 10),    // Full interrupt enable.
+    MCP251XFD_TEFCON_TEFHRFHIE = (1 << 11),    // Half-full interrupt enable.
+    MCP251XFD_TEFCON_TEFNRFNIE = (1 << 12),    // Not-full interrupt enable.
+    MCP251XFD_TEFCON_FRESET    = (1 << 13),    // Reset head/tail pointers.
+    MCP251XFD_TEFCON_UINC      = (1 << 14),    // User increment — advance read pointer.
+};
+#define MCP251XFD_TEFCON_FSIZE_SFT 0
+
+// CiTEFSTA register (0x0044) bit positions.
+enum mcp251xfd_tefsta_bits
+{
+    MCP251XFD_TEFSTA_NVIF = (1 << 0), // TEF not empty.
+    MCP251XFD_TEFSTA_HVIF = (1 << 1), // TEF half full.
+    MCP251XFD_TEFSTA_EFIF = (1 << 2), // TEF full.
+    MCP251XFD_TEFSTA_OVIF = (1 << 3), // TEF overflow.
+};
+
+// CiBDIAG1 register (0x003C) bit positions.
+#define MCP251XFD_BDIAG1_EFMSGCNT (0xFFFFUL << 0) // Error frame count (bits 15:0).
+#define MCP251XFD_BDIAG1_NBIT0ERR (1 << 16)
+#define MCP251XFD_BDIAG1_NBIT1ERR (1 << 17)
+#define MCP251XFD_BDIAG1_NACKERR  (1 << 18)
+#define MCP251XFD_BDIAG1_NFORMERR (1 << 19)
+#define MCP251XFD_BDIAG1_NSTUFERR (1 << 20)
+#define MCP251XFD_BDIAG1_NCRCERR  (1 << 21)
+#define MCP251XFD_BDIAG1_TXBOERR  (1 << 23)
+#define MCP251XFD_BDIAG1_DBIT0ERR (1 << 24)
+#define MCP251XFD_BDIAG1_DBIT1ERR (1 << 25)
+#define MCP251XFD_BDIAG1_DFORMERR (1 << 27)
+#define MCP251XFD_BDIAG1_DSTUFERR (1 << 28)
+#define MCP251XFD_BDIAG1_DCRCERR  (1 << 29)
+#define MCP251XFD_BDIAG1_ESI      (1 << 30)
+#define MCP251XFD_BDIAG1_DLCMM   (1UL << 31)
 
 // CRC-16 lookup table, polynomial 0x8005 (x^16+x^15+x^2+1), MSB-first, no reflection.
 // Used for SPI READ_CRC / WRITE_CRC commands. Update: crc = (crc<<8) ^ crc16_table[(crc>>8) ^ byte].
@@ -251,6 +348,7 @@ struct mcp2518fd_priv
 {
     bool initialised; // Track if instance has been initialised for validation.
 
+    void *iface; // Forwarded to chip_enable and spi_transfer callbacks.
     uint32_t (*time_us)(void);
     void (*delay)(uint32_t microseconds);
     void (*chip_enable)(void *iface, bool enable);
@@ -320,10 +418,10 @@ static void mcp251xfd_write_register(MCP251XFD *dev, uint16_t reg_addr, const ui
     // Command buffer
     uint8_t cmd[2] = {MCP251XFD_SPI_WRITE << 4 | ((reg_addr >> 8) & 0x0F), reg_addr & 0xFF};
 
-    dev->chip_enable(dev, true);
-    dev->spi_transfer(dev, cmd, NULL, 2);       // Send write command and register address.
-    dev->spi_transfer(dev, data, NULL, length); // Send data to be written.
-    dev->chip_enable(dev, false);
+    dev->chip_enable(dev->iface, true);
+    dev->spi_transfer(dev->iface, cmd, NULL, 2);       // Send write command and register address.
+    dev->spi_transfer(dev->iface, data, NULL, length); // Send data to be written.
+    dev->chip_enable(dev->iface, false);
 }
 
 /**
@@ -340,10 +438,10 @@ static void mcp251xfd_read_register(MCP251XFD *dev, uint16_t reg_addr, uint8_t *
     // Command buffer
     uint8_t cmd[2] = {MCP251XFD_SPI_READ << 4 | ((reg_addr >> 8) & 0x0F), reg_addr & 0xFF};
 
-    dev->chip_enable(dev, true);
-    dev->spi_transfer(dev, cmd, NULL, 2);       // Send read command and register address.
-    dev->spi_transfer(dev, NULL, data, length); // Read data into buffer.
-    dev->chip_enable(dev, false);
+    dev->chip_enable(dev->iface, true);
+    dev->spi_transfer(dev->iface, cmd, NULL, 2);       // Send read command and register address.
+    dev->spi_transfer(dev->iface, NULL, data, length); // Read data into buffer.
+    dev->chip_enable(dev->iface, false);
 }
 
 /**
@@ -385,11 +483,11 @@ static void mcp251xfd_write_register_crc(MCP251XFD *dev, uint16_t reg_addr, cons
     crc = crc16_compute(crc, data, length);
     uint8_t crc_bytes[2] = {(uint8_t)(crc >> 8), (uint8_t)(crc & 0xFF)};
 
-    dev->chip_enable(dev, true);
-    dev->spi_transfer(dev, cmd, NULL, 3);
-    dev->spi_transfer(dev, data, NULL, length);
-    dev->spi_transfer(dev, crc_bytes, NULL, 2);
-    dev->chip_enable(dev, false);
+    dev->chip_enable(dev->iface, true);
+    dev->spi_transfer(dev->iface, cmd, NULL, 3);
+    dev->spi_transfer(dev->iface, data, NULL, length);
+    dev->spi_transfer(dev->iface, crc_bytes, NULL, 2);
+    dev->chip_enable(dev->iface, false);
 }
 
 /**
@@ -409,12 +507,12 @@ static mcp251xfd_return_t mcp251xfd_read_register_crc(MCP251XFD *dev, uint16_t r
     uint8_t cmd_crc_bytes[2] = {(uint8_t)(cmd_crc >> 8), (uint8_t)(cmd_crc & 0xFF)};
     uint8_t rx_crc_bytes[2];
 
-    dev->chip_enable(dev, true);
-    dev->spi_transfer(dev, cmd, NULL, 3);
-    dev->spi_transfer(dev, cmd_crc_bytes, NULL, 2);
-    dev->spi_transfer(dev, NULL, data, length);
-    dev->spi_transfer(dev, NULL, rx_crc_bytes, 2);
-    dev->chip_enable(dev, false);
+    dev->chip_enable(dev->iface, true);
+    dev->spi_transfer(dev->iface, cmd, NULL, 3);
+    dev->spi_transfer(dev->iface, cmd_crc_bytes, NULL, 2);
+    dev->spi_transfer(dev->iface, NULL, data, length);
+    dev->spi_transfer(dev->iface, NULL, rx_crc_bytes, 2);
+    dev->chip_enable(dev->iface, false);
 
     // Device CRC covers cmd header + received data.
     uint16_t expected = crc16_compute(0xFFFF, cmd, 3);
@@ -461,9 +559,9 @@ static mcp251xfd_return_t mcp251xfd_read_word_crc(MCP251XFD *dev, uint16_t reg_a
 static void mcp251xfd_reset_device(MCP251XFD *dev)
 {
     uint8_t cmd[2] = {MCP251XFD_SPI_RESET << 4, 0};
-    dev->chip_enable(dev, true);
-    dev->spi_transfer(dev, cmd, NULL, 2); // Send reset command.
-    dev->chip_enable(dev, false);
+    dev->chip_enable(dev->iface, true);
+    dev->spi_transfer(dev->iface, cmd, NULL, 2); // Send reset command.
+    dev->chip_enable(dev->iface, false);
 
     // Wait 100us for reset
     dev->delay(100);
@@ -939,6 +1037,7 @@ mcp251xfd_return_t mcp251xfd_initialise(MCP251XFD *dev, mcp251xfd_config_t *conf
     }
 
     /// Set parameters.
+    dev->iface = config->iface;
     dev->time_us = config->elapsed_us;
     dev->delay = config->delay_func;
     dev->chip_enable = config->chip_enable;
@@ -1057,3 +1156,449 @@ mcp251xfd_return_t mcp251xfd_reset(MCP251XFD *dev)
 
     return mcp251xfd_initialise(dev, &dev->config);
 }
+
+#pragma region CAN Message Transmission and Reception
+
+mcp251xfd_return_t mcp251xfd_transmit(MCP251XFD *dev, uint8_t fifo_num, const can_frame_t *frame)
+{
+    CHECK_NULL_PARAM(dev);
+    CHECK_NULL_PARAM(frame);
+
+    if (fifo_num < 1 || fifo_num > 31)
+    {
+        errorf("FIFO number must be 1-31.");
+        return MCP251XFD_RETURN_INVALID_PARAM;
+    }
+
+    uint32_t fifosta = mcp251xfd_read_word(dev, MCP251XFD_REG_FIFOSTA(fifo_num - 1));
+    if (!(fifosta & MCP251XFD_FIFOSTA_NVIF))
+        return MCP251XFD_RETURN_TX_FIFO_FULL;
+
+    uint16_t obj_addr = (uint16_t)(mcp251xfd_read_word(dev, MCP251XFD_REG_FIFOUA(fifo_num - 1)) & 0x0FFF);
+
+    bool extended = (frame->flags & CAN_FRAME_FLAG_EEF) != 0;
+    uint32_t t0 = mcp251xfd_pack_id(frame->id, extended);
+    uint32_t t1 = (frame->dlc & 0x0F);
+    if (extended)                          t1 |= MCP251XFD_T1_IDE;
+    if (frame->flags & CAN_FRAME_FLAG_FDF) t1 |= MCP251XFD_T1_FDF;
+    if (frame->flags & CAN_FRAME_FLAG_BRS) t1 |= MCP251XFD_T1_BRS;
+    if (frame->flags & CAN_FRAME_FLAG_ESI) t1 |= MCP251XFD_T1_ESI;
+
+    mcp251xfd_write_word(dev, obj_addr, t0);
+    mcp251xfd_write_word(dev, obj_addr + 4, t1);
+
+    uint8_t data_len = can_frame_get_length(frame);
+    if (data_len > 0)
+        mcp251xfd_write_register(dev, obj_addr + 8, frame->data, data_len);
+
+    uint32_t fifocon = mcp251xfd_read_word(dev, MCP251XFD_REG_FIFOCON(fifo_num - 1));
+    mcp251xfd_write_word(dev, MCP251XFD_REG_FIFOCON(fifo_num - 1), fifocon | MCP251XFD_FIFOCON_UINC | MCP251XFD_FIFOCON_TXREQ);
+
+    return MCP251XFD_RETURN_OK;
+}
+
+mcp251xfd_return_t mcp251xfd_abort_tx(MCP251XFD *dev, uint8_t fifo_num)
+{
+    CHECK_NULL_PARAM(dev);
+
+    if (fifo_num < 1 || fifo_num > 31)
+    {
+        errorf("FIFO number must be 1-31.");
+        return MCP251XFD_RETURN_INVALID_PARAM;
+    }
+
+    uint32_t fifocon = mcp251xfd_read_word(dev, MCP251XFD_REG_FIFOCON(fifo_num - 1));
+    mcp251xfd_write_word(dev, MCP251XFD_REG_FIFOCON(fifo_num - 1), fifocon & ~MCP251XFD_FIFOCON_TXREQ);
+
+    return MCP251XFD_RETURN_OK;
+}
+
+mcp251xfd_return_t mcp251xfd_rx_pending(MCP251XFD *dev, uint8_t fifo_num, uint8_t *count)
+{
+    CHECK_NULL_PARAM(dev);
+    CHECK_NULL_PARAM(count);
+
+    if (fifo_num < 1 || fifo_num > 31)
+    {
+        errorf("FIFO number must be 1-31.");
+        return MCP251XFD_RETURN_INVALID_PARAM;
+    }
+
+    uint32_t fifosta = mcp251xfd_read_word(dev, MCP251XFD_REG_FIFOSTA(fifo_num - 1));
+
+    if (!(fifosta & MCP251XFD_FIFOSTA_NVIF))
+    {
+        *count = 0;
+    }
+    else if (fifosta & MCP251XFD_FIFOSTA_EFIF)
+    {
+        // FIFO full: exact depth = FSIZE + 1.
+        uint32_t fifocon = mcp251xfd_read_word(dev, MCP251XFD_REG_FIFOCON(fifo_num - 1));
+        *count = (uint8_t)((fifocon & MCP251XFD_FIFOCON_FSIZE_MASK) >> MCP251XFD_FIFOCON_FSIZE_SFT) + 1;
+    }
+    else
+    {
+        // Not empty, not full — hardware does not expose an exact count.
+        *count = 1;
+    }
+
+    return MCP251XFD_RETURN_OK;
+}
+
+static mcp251xfd_return_t mcp251xfd_read_rx_object(MCP251XFD *dev, uint8_t fifo_num, can_frame_t *frame)
+{
+    uint32_t fifosta = mcp251xfd_read_word(dev, MCP251XFD_REG_FIFOSTA(fifo_num - 1));
+    if (!(fifosta & MCP251XFD_FIFOSTA_NVIF))
+        return MCP251XFD_RETURN_RX_FIFO_EMPTY;
+
+    uint16_t obj_addr = (uint16_t)(mcp251xfd_read_word(dev, MCP251XFD_REG_FIFOUA(fifo_num - 1)) & 0x0FFF);
+
+    uint32_t t0 = mcp251xfd_read_word(dev, obj_addr);
+    uint32_t t1 = mcp251xfd_read_word(dev, obj_addr + 4);
+
+    bool extended;
+    frame->id    = mcp251xfd_unpack_id(t0, &extended);
+    frame->flags = 0;
+    if (extended)                    frame->flags |= CAN_FRAME_FLAG_EEF;
+    if (t1 & MCP251XFD_T1_FDF)      frame->flags |= CAN_FRAME_FLAG_FDF;
+    if (t1 & MCP251XFD_T1_BRS)      frame->flags |= CAN_FRAME_FLAG_BRS;
+    if (t1 & MCP251XFD_T1_ESI)      frame->flags |= CAN_FRAME_FLAG_ESI;
+    frame->dlc = (uint8_t)(t1 & MCP251XFD_T1_DLC_MASK);
+
+    uint8_t data_len = can_frame_get_length(frame);
+    if (data_len > 0)
+        mcp251xfd_read_register(dev, obj_addr + 8, frame->data, data_len);
+
+    // Advance FIFO head pointer.
+    uint32_t fifocon = mcp251xfd_read_word(dev, MCP251XFD_REG_FIFOCON(fifo_num - 1));
+    mcp251xfd_write_word(dev, MCP251XFD_REG_FIFOCON(fifo_num - 1), fifocon | MCP251XFD_FIFOCON_UINC);
+
+    return MCP251XFD_RETURN_OK;
+}
+
+mcp251xfd_return_t mcp251xfd_get_received(MCP251XFD *dev, uint8_t fifo_num, can_frame_t *frame)
+{
+    CHECK_NULL_PARAM(dev);
+    CHECK_NULL_PARAM(frame);
+
+    if (fifo_num < 1 || fifo_num > 31)
+    {
+        errorf("FIFO number must be 1-31.");
+        return MCP251XFD_RETURN_INVALID_PARAM;
+    }
+
+    return mcp251xfd_read_rx_object(dev, fifo_num, frame);
+}
+
+mcp251xfd_return_t mcp251xfd_get_all_received(MCP251XFD *dev, uint8_t fifo_num,
+                                              can_frame_t *frames, uint8_t max_frames,
+                                              uint8_t *frame_count)
+{
+    CHECK_NULL_PARAM(dev);
+    CHECK_NULL_PARAM(frames);
+    CHECK_NULL_PARAM(frame_count);
+
+    if (fifo_num < 1 || fifo_num > 31)
+    {
+        errorf("FIFO number must be 1-31.");
+        return MCP251XFD_RETURN_INVALID_PARAM;
+    }
+
+    *frame_count = 0;
+    while (*frame_count < max_frames)
+    {
+        mcp251xfd_return_t ret = mcp251xfd_read_rx_object(dev, fifo_num, &frames[*frame_count]);
+        if (ret == MCP251XFD_RETURN_RX_FIFO_EMPTY)
+            break;
+        if (ret != MCP251XFD_RETURN_OK)
+            return ret;
+        (*frame_count)++;
+    }
+
+    return MCP251XFD_RETURN_OK;
+}
+
+mcp251xfd_return_t mcp251xfd_flush_rx(MCP251XFD *dev, uint8_t fifo_num)
+{
+    CHECK_NULL_PARAM(dev);
+
+    if (fifo_num < 1 || fifo_num > 31)
+    {
+        errorf("FIFO number must be 1-31.");
+        return MCP251XFD_RETURN_INVALID_PARAM;
+    }
+
+    uint32_t fifocon = mcp251xfd_read_word(dev, MCP251XFD_REG_FIFOCON(fifo_num - 1));
+    mcp251xfd_write_word(dev, MCP251XFD_REG_FIFOCON(fifo_num - 1), fifocon | MCP251XFD_FIFOCON_FRESET);
+
+    return MCP251XFD_RETURN_OK;
+}
+
+mcp251xfd_return_t mcp251xfd_get_rx_overflow(MCP251XFD *dev, uint8_t fifo_num, bool *overflowed)
+{
+    CHECK_NULL_PARAM(dev);
+    CHECK_NULL_PARAM(overflowed);
+
+    if (fifo_num < 1 || fifo_num > 31)
+    {
+        errorf("FIFO number must be 1-31.");
+        return MCP251XFD_RETURN_INVALID_PARAM;
+    }
+
+    uint32_t fifosta = mcp251xfd_read_word(dev, MCP251XFD_REG_FIFOSTA(fifo_num - 1));
+    *overflowed = (fifosta & MCP251XFD_FIFOSTA_RXOVIF) != 0;
+
+    if (*overflowed)
+        mcp251xfd_write_word(dev, MCP251XFD_REG_FIFOSTA(fifo_num - 1), fifosta & ~MCP251XFD_FIFOSTA_RXOVIF);
+
+    return MCP251XFD_RETURN_OK;
+}
+
+#pragma endregion
+
+#pragma region CAN Error Handling
+
+mcp251xfd_return_t mcp251xfd_get_error_state(MCP251XFD *dev, mcp251xfd_error_state_t *state)
+{
+    CHECK_NULL_PARAM(dev);
+    CHECK_NULL_PARAM(state);
+
+    uint32_t trec      = mcp251xfd_read_word(dev, MCP251XFD_REG_CITREC);
+    state->rec         = (uint8_t)(trec & 0xFF);
+    state->tec         = (uint8_t)((trec >> 8) & 0xFF);
+    state->error_warn  = (trec & MCP251XFD_TREC_EWARN)  != 0;
+    state->rx_warn     = (trec & MCP251XFD_TREC_RXWARN) != 0;
+    state->tx_warn     = (trec & MCP251XFD_TREC_TXWARN) != 0;
+    state->rx_passive  = (trec & MCP251XFD_TREC_RXBP)   != 0;
+    state->tx_passive  = (trec & MCP251XFD_TREC_TXBP)   != 0;
+    state->bus_off     = (trec & MCP251XFD_TREC_TXBO)   != 0;
+
+    return MCP251XFD_RETURN_OK;
+}
+
+mcp251xfd_return_t mcp251xfd_recover_bus_off(MCP251XFD *dev, uint32_t timeout_us)
+{
+    CHECK_NULL_PARAM(dev);
+
+    if (!(mcp251xfd_read_word(dev, MCP251XFD_REG_CITREC) & MCP251XFD_TREC_TXBO))
+        return MCP251XFD_RETURN_OK;
+
+    mcp251xfd_return_t ret = mcp251xfd_request_opmode(dev, MCP251XFD_OPMODE_NORMAL);
+    if (ret != MCP251XFD_RETURN_OK)
+        return ret;
+
+    uint32_t start = dev->time_us();
+    while (mcp251xfd_read_word(dev, MCP251XFD_REG_CITREC) & MCP251XFD_TREC_TXBO)
+    {
+        if (dev->time_us() - start > timeout_us)
+            return MCP251XFD_RETURN_TIMEOUT;
+        dev->delay(100);
+    }
+
+    return MCP251XFD_RETURN_OK;
+}
+
+#pragma endregion
+
+#pragma region GPIO Control
+
+static mcp251xfd_return_t mcp251xfd_iocon_set_bit(MCP251XFD *dev, uint32_t bit_mask, bool value)
+{
+    uint32_t iocon = mcp251xfd_read_word(dev, MCP251XFD_REG_IOCON);
+    iocon = value ? (iocon | bit_mask) : (iocon & ~bit_mask);
+    mcp251xfd_write_word(dev, MCP251XFD_REG_IOCON, iocon);
+    return MCP251XFD_RETURN_OK;
+}
+
+mcp251xfd_return_t mcp251xfd_gpio_set_mode(MCP251XFD *dev, mcp251xfd_gpio_pin_t pin, mcp251xfd_gpio_mode_t mode)
+{
+    CHECK_NULL_PARAM(dev);
+    return mcp251xfd_iocon_set_bit(dev, MCP251XFD_IOCON_PM0 << pin, mode == MCP251XFD_GPIO_MODE_GPIO);
+}
+
+mcp251xfd_return_t mcp251xfd_gpio_set_direction(MCP251XFD *dev, mcp251xfd_gpio_pin_t pin, mcp251xfd_gpio_dir_t dir)
+{
+    CHECK_NULL_PARAM(dev);
+    return mcp251xfd_iocon_set_bit(dev, MCP251XFD_IOCON_TRIS0 << pin, dir == MCP251XFD_GPIO_INPUT);
+}
+
+mcp251xfd_return_t mcp251xfd_gpio_write(MCP251XFD *dev, mcp251xfd_gpio_pin_t pin, bool value)
+{
+    CHECK_NULL_PARAM(dev);
+    return mcp251xfd_iocon_set_bit(dev, MCP251XFD_IOCON_LAT0 << pin, value);
+}
+
+mcp251xfd_return_t mcp251xfd_gpio_read(MCP251XFD *dev, mcp251xfd_gpio_pin_t pin, bool *value)
+{
+    CHECK_NULL_PARAM(dev);
+    CHECK_NULL_PARAM(value);
+    *value = (mcp251xfd_read_word(dev, MCP251XFD_REG_IOCON) & (MCP251XFD_IOCON_GPIO0 << pin)) != 0;
+    return MCP251XFD_RETURN_OK;
+}
+
+mcp251xfd_return_t mcp251xfd_gpio_set_tx_open_drain(MCP251XFD *dev, bool enable)
+{
+    CHECK_NULL_PARAM(dev);
+    return mcp251xfd_iocon_set_bit(dev, MCP251XFD_IOCON_TXCANOD, enable);
+}
+
+mcp251xfd_return_t mcp251xfd_gpio_set_int_open_drain(MCP251XFD *dev, bool enable)
+{
+    CHECK_NULL_PARAM(dev);
+    return mcp251xfd_iocon_set_bit(dev, MCP251XFD_IOCON_INTOD, enable);
+}
+
+mcp251xfd_return_t mcp251xfd_gpio_set_sof_output(MCP251XFD *dev, bool enable)
+{
+    CHECK_NULL_PARAM(dev);
+    return mcp251xfd_iocon_set_bit(dev, MCP251XFD_IOCON_SOF, enable);
+}
+
+#pragma endregion
+
+#pragma region Device Identification
+
+mcp251xfd_return_t mcp251xfd_get_model(MCP251XFD *dev, mcp251xfd_model_t *model)
+{
+    CHECK_NULL_PARAM(dev);
+    CHECK_NULL_PARAM(model);
+
+    // DEV field is bits 3:0 of DEVID: 0xE = MCP2517FD, 0xC = MCP2518FD.
+    uint32_t devid = mcp251xfd_read_word(dev, MCP251XFD_REG_DEVID);
+    switch (devid & 0x0F)
+    {
+    case 0x0E: *model = MODEL_MCP2517FD; break;
+    case 0x0C: *model = MODEL_MCP2518FD; break;
+    default:
+        errorf("Unrecognised DEVID 0x%02X.", (unsigned)(devid & 0xFF));
+        return MCP251XFD_RETURN_ERROR;
+    }
+    dev->model = *model;
+    return MCP251XFD_RETURN_OK;
+}
+
+#pragma endregion
+
+#pragma region Transmit Event FIFO
+
+mcp251xfd_return_t mcp251xfd_enable_tef(MCP251XFD *dev, const mcp251xfd_tef_config_t *config)
+{
+    CHECK_NULL_PARAM(dev);
+    CHECK_NULL_PARAM(config);
+
+    if (config->depth < 1 || config->depth > 32)
+    {
+        errorf("TEF depth must be 1-32.");
+        return MCP251XFD_RETURN_INVALID_PARAM;
+    }
+
+    // Enable the TEF in CiCON (must be in config mode).
+    uint32_t cicon = mcp251xfd_read_word(dev, MCP251XFD_REG_CICON);
+    mcp251xfd_write_word(dev, MCP251XFD_REG_CICON, cicon | MCP251XFD_CICON_STEF);
+
+    uint32_t tefcon = ((uint32_t)(config->depth - 1) << MCP251XFD_TEFCON_FSIZE_SFT) | MCP251XFD_TEFCON_FRESET;
+    if (config->timestamps)
+        tefcon |= MCP251XFD_TEFCON_TXTS;
+    mcp251xfd_write_word(dev, MCP251XFD_REG_CITEFCON, tefcon);
+
+    return MCP251XFD_RETURN_OK;
+}
+
+mcp251xfd_return_t mcp251xfd_read_tef(MCP251XFD *dev, mcp251xfd_tef_entry_t *entry)
+{
+    CHECK_NULL_PARAM(dev);
+    CHECK_NULL_PARAM(entry);
+
+    uint32_t tefsta = mcp251xfd_read_word(dev, MCP251XFD_REG_CITEFSTA);
+    if (!(tefsta & MCP251XFD_TEFSTA_NVIF))
+        return MCP251XFD_RETURN_RX_FIFO_EMPTY;
+
+    uint16_t obj_addr = (uint16_t)(mcp251xfd_read_word(dev, MCP251XFD_REG_CITEFUA) & 0x0FFF);
+
+    uint32_t t0 = mcp251xfd_read_word(dev, obj_addr);
+    uint32_t t1 = mcp251xfd_read_word(dev, obj_addr + 4);
+
+    bool extended;
+    entry->id        = mcp251xfd_unpack_id(t0, &extended);
+    entry->flags     = 0;
+    if (extended)               entry->flags |= CAN_FRAME_FLAG_EEF;
+    if (t1 & MCP251XFD_T1_FDF) entry->flags |= CAN_FRAME_FLAG_FDF;
+    if (t1 & MCP251XFD_T1_BRS) entry->flags |= CAN_FRAME_FLAG_BRS;
+    if (t1 & MCP251XFD_T1_ESI) entry->flags |= CAN_FRAME_FLAG_ESI;
+    entry->dlc       = (uint8_t)(t1 & MCP251XFD_T1_DLC_MASK);
+    entry->timestamp = (uint16_t)((t1 >> MCP251XFD_T1_TIMESTAMP_SFT) & 0xFFFF);
+
+    // Advance TEF read pointer.
+    uint32_t tefcon = mcp251xfd_read_word(dev, MCP251XFD_REG_CITEFCON);
+    mcp251xfd_write_word(dev, MCP251XFD_REG_CITEFCON, tefcon | MCP251XFD_TEFCON_UINC);
+
+    return MCP251XFD_RETURN_OK;
+}
+
+#pragma endregion
+
+#pragma region Time Base Counter
+
+mcp251xfd_return_t mcp251xfd_get_timestamp(MCP251XFD *dev, uint32_t *timestamp)
+{
+    CHECK_NULL_PARAM(dev);
+    CHECK_NULL_PARAM(timestamp);
+
+    *timestamp = mcp251xfd_read_word(dev, MCP251XFD_REG_CITBC);
+    return MCP251XFD_RETURN_OK;
+}
+
+#pragma endregion
+
+#pragma region Wake-up Filter
+
+mcp251xfd_return_t mcp251xfd_configure_wakeup(MCP251XFD *dev, bool enable, mcp251xfd_wakeup_filter_t filter)
+{
+    CHECK_NULL_PARAM(dev);
+
+    uint32_t cicon = mcp251xfd_read_word(dev, MCP251XFD_REG_CICON);
+    cicon &= ~(MCP251XFD_CICON_WAKFIL | MCP251XFD_CICON_WFT);
+    if (enable)
+        cicon |= MCP251XFD_CICON_WAKFIL | ((uint32_t)(filter & 0x3) << MCP251XFD_CICON_WFT_SFT);
+    mcp251xfd_write_word(dev, MCP251XFD_REG_CICON, cicon);
+
+    return MCP251XFD_RETURN_OK;
+}
+
+#pragma endregion
+
+#pragma region Bus Diagnostics
+
+mcp251xfd_return_t mcp251xfd_read_diagnostics(MCP251XFD *dev, mcp251xfd_diagnostics_t *diag)
+{
+    CHECK_NULL_PARAM(dev);
+    CHECK_NULL_PARAM(diag);
+
+    uint32_t bdiag0 = mcp251xfd_read_word(dev, MCP251XFD_REG_CIBDIAG0);
+    uint32_t bdiag1 = mcp251xfd_read_word(dev, MCP251XFD_REG_CIBDIAG1);
+
+    diag->nominal_rx_errors = (uint8_t)(bdiag0 & 0xFF);
+    diag->nominal_tx_errors = (uint8_t)((bdiag0 >> 8) & 0xFF);
+    diag->data_rx_errors    = (uint8_t)((bdiag0 >> 16) & 0xFF);
+    diag->data_tx_errors    = (uint8_t)((bdiag0 >> 24) & 0xFF);
+
+    diag->error_frame_count = (uint16_t)(bdiag1 & 0xFFFF);
+    diag->nbit0_err    = (bdiag1 & MCP251XFD_BDIAG1_NBIT0ERR) != 0;
+    diag->nbit1_err    = (bdiag1 & MCP251XFD_BDIAG1_NBIT1ERR) != 0;
+    diag->nack_err     = (bdiag1 & MCP251XFD_BDIAG1_NACKERR)  != 0;
+    diag->nform_err    = (bdiag1 & MCP251XFD_BDIAG1_NFORMERR) != 0;
+    diag->nstuff_err   = (bdiag1 & MCP251XFD_BDIAG1_NSTUFERR) != 0;
+    diag->ncrc_err     = (bdiag1 & MCP251XFD_BDIAG1_NCRCERR)  != 0;
+    diag->txbo_err     = (bdiag1 & MCP251XFD_BDIAG1_TXBOERR)  != 0;
+    diag->dbit0_err    = (bdiag1 & MCP251XFD_BDIAG1_DBIT0ERR) != 0;
+    diag->dbit1_err    = (bdiag1 & MCP251XFD_BDIAG1_DBIT1ERR) != 0;
+    diag->dform_err    = (bdiag1 & MCP251XFD_BDIAG1_DFORMERR) != 0;
+    diag->dstuff_err   = (bdiag1 & MCP251XFD_BDIAG1_DSTUFERR) != 0;
+    diag->dcrc_err     = (bdiag1 & MCP251XFD_BDIAG1_DCRCERR)  != 0;
+    diag->esi          = (bdiag1 & MCP251XFD_BDIAG1_ESI)       != 0;
+    diag->dlc_mismatch = (bdiag1 & MCP251XFD_BDIAG1_DLCMM)    != 0;
+
+    return MCP251XFD_RETURN_OK;
+}
+
+#pragma endregion

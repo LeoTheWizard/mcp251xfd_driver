@@ -658,7 +658,7 @@ static bool mcp251xfd_calculate_bit_timing(MCP251XFD *dev, can_baudrates_t baud,
 
 mcp251xfd_return_t mcp251xfd_set_baudrates(MCP251XFD *dev, can_baudrates_t nominal_baud, can_baudrates_t data_baud)
 {
-    CHECK_DEV_PARAM(dev);
+    CHECK_NULL_PARAM(dev);
 
     if (nominal_baud == 0 || data_baud == 0)
     {
@@ -773,6 +773,128 @@ mcp251xfd_return_t mcp251xfd_configure_fifo(MCP251XFD *dev, uint8_t fifo_num, co
 }
 
 /**
+ * @brief Packs a CAN ID into the hardware register word format used by CiFLTOBJn, CiMASKn, and message object T0.
+ * Layout: SID[10:0] at bits 10:0, EID[17:0] at bits 28:11, IDE/EXIDE at bit 30.
+ *
+ * @param id       11-bit standard ID in bits 10:0, or 29-bit extended ID in bits 28:0.
+ * @param extended true for a 29-bit extended ID, false for an 11-bit standard ID.
+ */
+static inline uint32_t mcp251xfd_pack_id(uint32_t id, bool extended)
+{
+    if (extended)
+        return ((id >> 18) & 0x7FF) | ((id & 0x3FFFF) << 11) | (1UL << 30);
+    return id & 0x7FF;
+}
+
+/**
+ * @brief Unpacks a hardware register word back into a flat CAN ID.
+ *
+ * @param reg      Register word in CiFLTOBJn / message T0 format.
+ * @param extended Set to true if the register encodes an extended ID, false for standard.
+ * @return         29-bit extended ID in bits 28:0, or 11-bit standard ID in bits 10:0.
+ */
+static inline uint32_t mcp251xfd_unpack_id(uint32_t reg, bool *extended)
+{
+    *extended = (reg >> 30) & 1;
+    if (*extended)
+        return ((reg & 0x7FF) << 18) | ((reg >> 11) & 0x3FFFF);
+    return reg & 0x7FF;
+}
+
+mcp251xfd_return_t mcp251xfd_configure_filter(MCP251XFD *dev,
+                                              uint8_t filter_num,
+                                              uint32_t id,
+                                              uint32_t mask,
+                                              bool extended,
+                                              uint8_t fifo_num)
+{
+    CHECK_NULL_PARAM(dev);
+
+    if (filter_num > 31)
+    {
+        errorf("Filter number must be 0-31.");
+        return MCP251XFD_RETURN_INVALID_PARAM;
+    }
+
+    if (fifo_num < 1 || fifo_num > 31)
+    {
+        errorf("FIFO number must be 1-31.");
+        return MCP251XFD_RETURN_INVALID_PARAM;
+    }
+
+    // Disable the filter before modifying its registers to avoid partial matches.
+    uint16_t fltcon_reg = MCP251XFD_REG_C1FLTCON0 + (filter_num / 4) * 4;
+    uint8_t byte_shift = (filter_num % 4) * 8;
+    uint32_t fltcon = mcp251xfd_read_word(dev, fltcon_reg);
+    fltcon &= ~(0xFFUL << byte_shift);
+    mcp251xfd_write_word(dev, fltcon_reg, fltcon);
+
+    // MIDE=1 in the mask enforces that only frames whose IDE bit matches EXIDE are accepted.
+    mcp251xfd_write_word(dev, MCP251XFD_REG_FLTOBJ(filter_num), mcp251xfd_pack_id(id, extended));
+    mcp251xfd_write_word(dev, MCP251XFD_REG_MASK0(filter_num), mcp251xfd_pack_id(mask, extended) | (1UL << 30));
+
+    // Enable filter: FLTEN (bit 7) | FSEL[4:0] = FIFO number.
+    fltcon |= ((1UL << 7) | (fifo_num & 0x1F)) << byte_shift;
+    mcp251xfd_write_word(dev, fltcon_reg, fltcon);
+
+    return MCP251XFD_RETURN_OK;
+}
+
+mcp251xfd_return_t mcp251xfd_disable_filter(MCP251XFD *dev, uint8_t filter_num)
+{
+    CHECK_NULL_PARAM(dev);
+
+    if (filter_num > 31)
+    {
+        errorf("Filter number must be 0-31.");
+        return MCP251XFD_RETURN_INVALID_PARAM;
+    }
+
+    uint16_t fltcon_reg = MCP251XFD_REG_C1FLTCON0 + (filter_num / 4) * 4;
+    uint8_t byte_shift = (filter_num % 4) * 8;
+
+    uint32_t fltcon = mcp251xfd_read_word(dev, fltcon_reg);
+    fltcon &= ~(1UL << (byte_shift + 7)); // Clear FLTEN only; preserve FSEL.
+    mcp251xfd_write_word(dev, fltcon_reg, fltcon);
+
+    return MCP251XFD_RETURN_OK;
+}
+
+mcp251xfd_return_t mcp251xfd_configure_interrupts(MCP251XFD *dev, uint32_t enable_mask)
+{
+    CHECK_NULL_PARAM(dev);
+
+    // Preserve existing flag bits (bits 15:0) to avoid clearing active interrupts.
+    uint32_t ciint = mcp251xfd_read_word(dev, MCP251XFD_REG_CIINT);
+    ciint = (ciint & 0x0000FFFF) | ((enable_mask & 0xFFFF) << 16);
+    mcp251xfd_write_word(dev, MCP251XFD_REG_CIINT, ciint);
+
+    return MCP251XFD_RETURN_OK;
+}
+
+mcp251xfd_return_t mcp251xfd_get_interrupt_flags(MCP251XFD *dev, uint32_t *flags)
+{
+    CHECK_NULL_PARAM(dev);
+    CHECK_NULL_PARAM(flags);
+
+    *flags = mcp251xfd_read_word(dev, MCP251XFD_REG_CIINT) & 0xFFFF;
+
+    return MCP251XFD_RETURN_OK;
+}
+
+mcp251xfd_return_t mcp251xfd_clear_interrupt_flags(MCP251XFD *dev, uint32_t clear_mask)
+{
+    CHECK_NULL_PARAM(dev);
+
+    // Writing 0 to a flag bit clears it; preserve enable bits and any flags not in clear_mask.
+    uint32_t ciint = mcp251xfd_read_word(dev, MCP251XFD_REG_CIINT);
+    ciint &= ~(clear_mask & 0xFFFF);
+    mcp251xfd_write_word(dev, MCP251XFD_REG_CIINT, ciint);
+
+    return MCP251XFD_RETURN_OK;
+}
+
+/**
  * @brief Zero initialises the internal RAM of the MCP251xFD device for ECC operation.
  *
  * @param dev The MCP251xFD device instance.
@@ -822,6 +944,8 @@ mcp251xfd_return_t mcp251xfd_initialise(MCP251XFD *dev, mcp251xfd_config_t *conf
     dev->chip_enable = config->chip_enable;
     dev->spi_transfer = config->spi_transfer;
     dev->config = *config; // Copy entire configuration struct.
+
+    dev->initialised = false;
 
     /// Reset device.
     mcp251xfd_reset_device(dev);
@@ -910,4 +1034,26 @@ mcp251xfd_return_t mcp251xfd_initialise(MCP251XFD *dev, mcp251xfd_config_t *conf
 
     dev->initialised = true;
     return MCP251XFD_RETURN_OK;
+}
+
+mcp251xfd_return_t mcp251xfd_deinitialise(MCP251XFD *dev)
+{
+    CHECK_NULL_PARAM(dev);
+
+    if (!dev->initialised)
+        return MCP251XFD_RETURN_OK;
+
+    mcp251xfd_return_t ret = mcp251xfd_request_opmode(dev, MCP251XFD_OPMODE_SLEEP);
+    if (ret != MCP251XFD_RETURN_OK)
+        return ret;
+
+    dev->initialised = false;
+    return MCP251XFD_RETURN_OK;
+}
+
+mcp251xfd_return_t mcp251xfd_reset(MCP251XFD *dev)
+{
+    CHECK_NULL_PARAM(dev);
+
+    return mcp251xfd_initialise(dev, &dev->config);
 }

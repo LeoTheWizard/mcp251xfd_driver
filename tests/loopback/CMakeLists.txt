@@ -33,6 +33,7 @@ target_link_libraries(loopback_test PRIVATE
     lw_mcp251xfd
     pico_stdlib
     hardware_spi
+    pico_bootrom
 )
 
 # Output over USB; disable UART to keep the default UART pins free.

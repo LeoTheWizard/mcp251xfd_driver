@@ -19,16 +19,17 @@
 #include <stdio.h>
 #include <string.h>
 #include "pico/stdlib.h"
+#include "pico/bootrom.h"
 #include "hardware/spi.h"
 #include "mcp251xfd.h"
 
 /* ---------- Hardware configuration ---------- */
-#define MCP_SPI_PORT spi0
-#define MCP_SPI_HZ 4000000u /* 4 MHz SPI clock                  */
-#define MCP_PIN_SCK 2u
-#define MCP_PIN_MOSI 3u
-#define MCP_PIN_MISO 4u
-#define MCP_PIN_CS 5u
+#define MCP_SPI_PORT spi1
+#define MCP_SPI_HZ 10000000u /* 4 MHz SPI clock                  */
+#define MCP_PIN_SCK 14u
+#define MCP_PIN_MOSI 15u
+#define MCP_PIN_MISO 12u
+#define MCP_PIN_CS 13u
 #define MCP_FOSC MCP251XFD_FOSC_40MHZ /* crystal on the breakout board */
 /* -------------------------------------------- */
 
@@ -159,7 +160,6 @@ int main(void)
 
     /* Initialise SPI0. */
     spi_init(MCP_SPI_PORT, MCP_SPI_HZ);
-    spi_set_format(MCP_SPI_PORT, 8, SPI_CPOL_0, SPI_CPHA_0, SPI_MSB_FIRST);
     gpio_set_function(MCP_PIN_SCK, GPIO_FUNC_SPI);
     gpio_set_function(MCP_PIN_MOSI, GPIO_FUNC_SPI);
     gpio_set_function(MCP_PIN_MISO, GPIO_FUNC_SPI);
@@ -198,10 +198,11 @@ int main(void)
         .fifo_count = 2,
     };
 
-    printf("Initialising driver...              ");
+    printf("Initialising driver...    ");
     if (mcp251xfd_initialise(dev, &cfg) != MCP251XFD_RETURN_OK)
     {
         printf("FAIL: %s\n", mcp251xfd_get_error_msg());
+        reset_usb_boot(0, 0);
         return 1;
     }
     printf("OK\n");
@@ -335,19 +336,20 @@ int main(void)
 
     mcp251xfd_destroy_instance(dev);
 
-#ifdef PICO_DEFAULT_LED_PIN
-    /* Slow blink = all pass; fast blink = failures. */
-    gpio_init(PICO_DEFAULT_LED_PIN);
-    gpio_set_dir(PICO_DEFAULT_LED_PIN, GPIO_OUT);
-    while (true)
+    if (fail_count != 0)
+        reset_usb_boot(0, 0);
+
+    /* Slow blink for 10 s on all-pass, then reboot to USB bootloader. */
+    gpio_init(19);
+    gpio_set_dir(19, GPIO_OUT);
+    uint32_t deadline = time_us_32() + 10000000u;
+    while ((int32_t)(deadline - time_us_32()) > 0)
     {
-        gpio_put(PICO_DEFAULT_LED_PIN, 1);
-        sleep_ms(fail_count == 0 ? 500 : 100);
-        gpio_put(PICO_DEFAULT_LED_PIN, 0);
-        sleep_ms(fail_count == 0 ? 500 : 100);
+        gpio_put(19, 1);
+        sleep_ms(500);
+        gpio_put(19, 0);
+        sleep_ms(500);
     }
-#else
-    while (true)
-        sleep_ms(1000);
-#endif
+    gpio_put(19, 0);
+    reset_usb_boot(0, 0);
 }

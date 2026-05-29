@@ -150,6 +150,7 @@ enum mcp251xfd_osc_bits
 {
     MCP251XFD_OSC_PLLEN = (0x01 << 0),    // PLL Enable: 1 = 10x PLL, 0 = direct oscillator
     MCP251XFD_OSC_OSCDIS = (0x01 << 2),   // Oscillator Disabled (MCP2518FD only): 1 = ext clock on CLKI, 0 = crystal circuit enabled
+    MCP251XFD_OSC_LPMEN = (0x01 << 3),    // Low Power Mode Enable (MCP2518FD only, reads 0 on MCP2517FD): used to distinguish chip variant
     MCP251XFD_OSC_SCLKDIV = (0x01 << 4),  // System Clock Divisor: 0 = /1, 1 = /2
     MCP251XFD_OSC_CLKODIV = (0x03 << 5),  // CLKO Pin Divisor: 00=/1, 01=/2, 10=/4, 11=/10
     MCP251XFD_OSC_PLLRDY = (0x01 << 8),   // PLL Ready (read-only)
@@ -177,27 +178,30 @@ enum mcp251xfd_eccstat_bits
 
 enum mcp251xfd_fifocon_bits
 {
-    MCP251XFD_FIFOCON_FSIZE_MASK = (0x1F << 0),   // FIFO depth (0=1 obj, 31=32 obj).
-    MCP251XFD_FIFOCON_TXEN = (0x01 << 7),         // 1 = TX FIFO, 0 = RX FIFO.
-    MCP251XFD_FIFOCON_RXOVIE = (0x01 << 8),       // RX overflow interrupt enable.
-    MCP251XFD_FIFOCON_TXATIE = (0x01 << 9),       // TX attempt interrupt enable.
-    MCP251XFD_FIFOCON_TFERFFIE = (0x01 << 10),    // Empty/full interrupt enable.
-    MCP251XFD_FIFOCON_TFHRFHIE = (0x01 << 11),    // Half empty/full interrupt enable.
-    MCP251XFD_FIFOCON_TFNRFNIE = (0x01 << 12),    // Not full/not empty interrupt enable.
-    MCP251XFD_FIFOCON_FRESET = (0x01 << 13),      // Reset FIFO head/tail pointers.
-    MCP251XFD_FIFOCON_UINC = (0x01 << 14),        // User Increment — advance FIFO pointer after object read/write.
-    MCP251XFD_FIFOCON_TXREQ = (0x01 << 15),       // TX Request — start transmission (TX FIFOs only).
-    MCP251XFD_FIFOCON_TXPRI_MASK = (0x1F << 16),  // TX message priority (TX only).
-    MCP251XFD_FIFOCON_RTREN = (0x01 << 22),       // Auto-RTR enable (TX only).
-    MCP251XFD_FIFOCON_PLSIZE_MASK = (0x07 << 24), // Payload size.
+    // Per MCP251xFD datasheet section 4.4.5.1 (CiFIFOCONm register).
+    MCP251XFD_FIFOCON_TFNRFNIE = (0x01 << 0),       // Not full (TX) / not empty (RX) interrupt enable.
+    MCP251XFD_FIFOCON_TFHRFHIE = (0x01 << 1),       // Half empty (TX) / half full (RX) interrupt enable.
+    MCP251XFD_FIFOCON_TFERFFIE = (0x01 << 2),       // Empty (TX) / full (RX) interrupt enable.
+    MCP251XFD_FIFOCON_RXOVIE = (0x01 << 3),         // RX overflow interrupt enable.
+    MCP251XFD_FIFOCON_TXATIE = (0x01 << 4),         // TX attempt interrupt enable.
+    MCP251XFD_FIFOCON_RXTSEN = (0x01 << 5),         // RX timestamp enable (RX only).
+    MCP251XFD_FIFOCON_RTREN = (0x01 << 6),          // Auto-RTR enable (TX only).
+    MCP251XFD_FIFOCON_TXEN = (0x01 << 7),           // 1 = TX FIFO, 0 = RX FIFO.
+    MCP251XFD_FIFOCON_UINC = (0x01 << 8),           // User Increment — advance FIFO pointer.
+    MCP251XFD_FIFOCON_TXREQ = (0x01 << 9),          // TX Request — start transmission.
+    MCP251XFD_FIFOCON_FRESET = (0x01 << 10),        // Reset FIFO head/tail pointers.
+    MCP251XFD_FIFOCON_TXPRI_MASK = (0x1F << 16),    // TX message priority (TX only).
+    MCP251XFD_FIFOCON_TXAT_MASK = (0x03 << 21),     // TX attempts (TX only).
+    MCP251XFD_FIFOCON_FSIZE_MASK = (0x1F << 24),    // FIFO depth (0=1 obj, 31=32 obj).
+    MCP251XFD_FIFOCON_PLSIZE_MASK = (0x07 << 29),   // Payload size.
 };
-#define MCP251XFD_FIFOCON_FSIZE_SFT 0
 #define MCP251XFD_FIFOCON_TXPRI_SFT 16
-#define MCP251XFD_FIFOCON_PLSIZE_SFT 24
+#define MCP251XFD_FIFOCON_FSIZE_SFT 24
+#define MCP251XFD_FIFOCON_PLSIZE_SFT 29
 
-#define MCP251XFD_REG_FIFOCON(fifo_number) (MCP251XFD_REG_C1FIFOCON1 + (fifo_number * 12))
-#define MCP251XFD_REG_FIFOSTA(fifo_number) (MCP251XFD_REG_C1FIFOSTA1 + (fifo_number * 12))
-#define MCP251XFD_REG_FIFOUA(fifo_number) (MCP251XFD_REG_C1FIFOUA1 + (fifo_number * 12))
+#define MCP251XFD_REG_FIFOCON(fifo_number) (MCP251XFD_REG_C1FIFOCON1 + ((fifo_number) * 12))
+#define MCP251XFD_REG_FIFOSTA(fifo_number) (MCP251XFD_REG_C1FIFOSTA1 + ((fifo_number) * 12))
+#define MCP251XFD_REG_FIFOUA(fifo_number)  (MCP251XFD_REG_C1FIFOUA1  + ((fifo_number) * 12))
 
 #define MCP251XFD_REG_FLTCON(filter_number) (MCP251XFD_REG_C1FLTCON0 + (filter_number * 4))
 #define MCP251XFD_REG_FLTOBJ(filter_number) (MCP251XFD_REG_C1FLTOBJ0 + (filter_number * 8))
@@ -466,7 +470,7 @@ static uint32_t mcp251xfd_read_word(MCP251XFD *dev, uint16_t reg_addr)
 {
     uint8_t data[4];
     mcp251xfd_read_register(dev, reg_addr, data, 4);
-    return (data[0] << 0) | (data[1] << 8) | (data[2] << 16) | (data[3] << 24);
+    return ((uint32_t)data[0] << 0) | ((uint32_t)data[1] << 8) | ((uint32_t)data[2] << 16) | ((uint32_t)data[3] << 24);
 }
 
 /**
@@ -646,42 +650,6 @@ mcp251xfd_return_t mcp251xfd_get_opmode(MCP251XFD *dev, mcp251xfd_opmode_t *mode
 }
 
 /**
- * @brief Verifies SPI communication is working by reading the OSC register after reset
- * and checking that OSCRDY and SCLKRDY are set as expected.
- *
- * @param dev The MCP251xFD device instance.
- *
- * @return MCP251XFD_RETURN_OK on success, MCP251XFD_RETURN_ERROR if the register reads
- *         back all-zeros or all-ones (no device present) or the ready bits are not set.
- */
-static mcp251xfd_return_t mcp251xfd_spi_test(MCP251XFD *dev)
-{
-    uint32_t start = dev->time_us();
-    uint32_t devid;
-
-    do
-    {
-        devid = mcp251xfd_read_word(dev, MCP251XFD_REG_DEVID);
-        uint8_t dev_field = devid & 0x0F;
-        if (dev_field == 0x0C)
-        {
-            dev->model = MODEL_MCP2518FD;
-            return MCP251XFD_RETURN_OK;
-        }
-        if (dev_field == 0x0E)
-        {
-            dev->model = MODEL_MCP2517FD;
-            return MCP251XFD_RETURN_OK;
-        }
-        dev->delay(1000);
-    } while (dev->time_us() - start < 1000000);
-
-    errorf("SPI test failed: DEVID=0x%08X (DEV nibble=0x%X, want 0x0C or 0x0E). "
-           "Check SPI wiring, power, and crystal.", devid, devid & 0x0F);
-    return MCP251XFD_RETURN_ERROR;
-}
-
-/**
  * @brief Configures the oscillator of the MCP251xFD device based on the selected external clock frequency in the configuration.
  *
  * @param dev The MCP251xFD device instance.
@@ -691,23 +659,24 @@ static mcp251xfd_return_t mcp251xfd_spi_test(MCP251XFD *dev)
  */
 static mcp251xfd_return_t mcp251xfd_configure_osc(MCP251XFD *dev, mcp251xfd_fosc_t fosc)
 {
-    uint32_t ready_mask = MCP251XFD_OSC_OSCRDY | MCP251XFD_OSC_SCLKRDY;
+    uint32_t ready_mask = MCP251XFD_OSC_OSCRDY;
 
     if (fosc == MCP251XFD_FOSC_4MHZ)
     {
         // Enable the 10x PLL via read-modify-write so other OSC bits are undisturbed.
         uint32_t osc = mcp251xfd_read_word(dev, MCP251XFD_REG_OSC);
         mcp251xfd_write_word(dev, MCP251XFD_REG_OSC, osc | MCP251XFD_OSC_PLLEN);
+        // For PLL, wait for PLLRDY + SCLKRDY since there is a real clock-switch event.
         ready_mask = MCP251XFD_OSC_PLLRDY | MCP251XFD_OSC_SCLKRDY;
     }
-    // For 20/40 MHz there is nothing to write: the oscillator is already running
-    // after reset and writing to OSC disturbs CLKODIV (reset = /10), which causes
-    // SCLKRDY to briefly deassert and can cause a spurious timeout.
+    // For 20/40 MHz the system clock is the oscillator directly, so OSCRDY alone is
+    // sufficient. SCLKRDY after a SPI software reset does not reliably self-assert
+    // (unlike a power-on reset), even though the clock is running.
 
     uint32_t start = dev->time_us();
     while ((mcp251xfd_read_word(dev, MCP251XFD_REG_OSC) & ready_mask) != ready_mask)
     {
-        if (dev->time_us() - start > 10000)
+        if (dev->time_us() - start > 1000000)
             return MCP251XFD_RETURN_TIMEOUT;
         dev->delay(10);
     }
@@ -820,9 +789,9 @@ mcp251xfd_return_t mcp251xfd_set_baudrates(MCP251XFD *dev, can_baudrates_t nomin
     return MCP251XFD_RETURN_OK;
 }
 
-uint8_t mcp251xfd_get_fifo_ram_usage(const mcp251xfd_fifo_config_t *config)
+uint32_t mcp251xfd_get_fifo_ram_usage(const mcp251xfd_fifo_config_t *config)
 {
-    return config->depth * (8 + (uint8_t)config->payload);
+    return (uint32_t)config->depth * (8u + (uint32_t)config->payload);
 }
 
 mcp251xfd_return_t mcp251xfd_configure_fifo(MCP251XFD *dev, uint8_t fifo_num, const mcp251xfd_fifo_config_t *config, uint32_t *ram_used)
@@ -898,9 +867,7 @@ mcp251xfd_return_t mcp251xfd_configure_fifo(MCP251XFD *dev, uint8_t fifo_num, co
     if (ram_used)
         *ram_used = mcp251xfd_get_fifo_ram_usage(config);
 
-    // FIFO register macro is 0-based from FIFO 1; fifo_num is 1-based.
     mcp251xfd_write_word(dev, MCP251XFD_REG_FIFOCON(fifo_num - 1), fifocon);
-
     return MCP251XFD_RETURN_OK;
 }
 
@@ -1070,6 +1037,12 @@ mcp251xfd_return_t mcp251xfd_initialise(MCP251XFD *dev, mcp251xfd_config_t *conf
         return MCP251XFD_RETURN_INVALID_PARAM;
     }
 
+    if (config->model != MODEL_MCP2517FD && config->model != MODEL_MCP2518FD)
+    {
+        errorf("config->model must be set to MODEL_MCP2517FD or MODEL_MCP2518FD.");
+        return MCP251XFD_RETURN_INVALID_PARAM;
+    }
+
     /// Set parameters.
     dev->iface = config->iface;
     dev->time_us = config->elapsed_us;
@@ -1082,17 +1055,23 @@ mcp251xfd_return_t mcp251xfd_initialise(MCP251XFD *dev, mcp251xfd_config_t *conf
 
     /// Reset device.
     mcp251xfd_reset_device(dev);
+    dev->delay(2000);
 
-    /// Verify SPI communication before proceeding.
-    if (mcp251xfd_spi_test(dev) != MCP251XFD_RETURN_OK)
-        return MCP251XFD_RETURN_ERROR; /* error message already set by spi_test */
-
-    /// Configure and bring up oscillator based on selected external clock frequency.
+    /// Configure and bring up oscillator; this also waits for OSCRDY + SCLKRDY.
     if (mcp251xfd_configure_osc(dev, config->fosc) != MCP251XFD_RETURN_OK)
     {
-        errorf("Failed to configure oscillator.");
+        errorf("Oscillator did not stabilise. Check crystal and power supply.");
         return MCP251XFD_RETURN_ERROR;
     }
+
+    mcp251xfd_change_opmode(dev, MCP251XFD_OPMODE_CONFIG, 1000000);
+
+    // Clear TXQEN and STEF so the TX Queue and TEF don't consume RAM before our FIFOs.
+    // Both bits are set in the chip's power-on default; re-enable them later if needed.
+    uint32_t cicon = mcp251xfd_read_word(dev, MCP251XFD_REG_CICON);
+    mcp251xfd_write_word(dev, MCP251XFD_REG_CICON, cicon & ~(MCP251XFD_CICON_TXQEN | MCP251XFD_CICON_STEF));
+
+    dev->model = config->model;
 
     /// Set nominal and data bit timings.
     if (mcp251xfd_set_baudrates(dev, config->nominal_baud, config->data_baud) != MCP251XFD_RETURN_OK)
@@ -1140,10 +1119,7 @@ mcp251xfd_return_t mcp251xfd_initialise(MCP251XFD *dev, mcp251xfd_config_t *conf
         {
             mcp251xfd_return_t result = mcp251xfd_configure_fifo(dev, i + 1, &config->fifo_configs[i], NULL);
             if (result != MCP251XFD_RETURN_OK)
-            {
-                errorf("Failed to configure FIFO %u.", i + 1);
-                return result;
-            }
+                return result; // error message already set by configure_fifo
         }
     }
     else
@@ -1213,7 +1189,7 @@ mcp251xfd_return_t mcp251xfd_transmit(MCP251XFD *dev, uint8_t fifo_num, const ca
         return MCP251XFD_RETURN_TX_FIFO_FULL;
 
     uint16_t ua = (uint16_t)(mcp251xfd_read_word(dev, MCP251XFD_REG_FIFOUA(fifo_num - 1)) & 0x0FFF);
-    uint16_t obj_addr = (uint16_t)((dev->model == MODEL_MCP2518FD ? ua * 4u : ua) + MCP251XFD_RAM_START);
+    uint16_t obj_addr = (uint16_t)(ua + MCP251XFD_RAM_START);
 
     bool extended = (frame->flags & CAN_FRAME_FLAG_EEF) != 0;
     uint32_t t0 = mcp251xfd_pack_id(frame->id, extended);
@@ -1234,8 +1210,10 @@ mcp251xfd_return_t mcp251xfd_transmit(MCP251XFD *dev, uint8_t fifo_num, const ca
     if (data_len > 0)
         mcp251xfd_write_register(dev, obj_addr + 8, frame->data, data_len);
 
-    uint32_t fifocon = mcp251xfd_read_word(dev, MCP251XFD_REG_FIFOCON(fifo_num - 1));
-    mcp251xfd_write_word(dev, MCP251XFD_REG_FIFOCON(fifo_num - 1), fifocon | MCP251XFD_FIFOCON_UINC | MCP251XFD_FIFOCON_TXREQ);
+    // Write only byte 1 of FIFOCON to strobe UINC (bit 8) + TXREQ (bit 9). A full word
+    // write is rejected outside Config mode because it touches read-only fields.
+    const uint8_t uinc_txreq = 0x03;
+    mcp251xfd_write_register(dev, MCP251XFD_REG_FIFOCON(fifo_num - 1) + 1, &uinc_txreq, 1);
 
     return MCP251XFD_RETURN_OK;
 }
@@ -1250,8 +1228,8 @@ mcp251xfd_return_t mcp251xfd_abort_tx(MCP251XFD *dev, uint8_t fifo_num)
         return MCP251XFD_RETURN_INVALID_PARAM;
     }
 
-    uint32_t fifocon = mcp251xfd_read_word(dev, MCP251XFD_REG_FIFOCON(fifo_num - 1));
-    mcp251xfd_write_word(dev, MCP251XFD_REG_FIFOCON(fifo_num - 1), fifocon & ~MCP251XFD_FIFOCON_TXREQ);
+    const uint8_t clear_txreq = 0x00; // clear TXREQ and UINC; interrupt-enable bits are read-only here
+    mcp251xfd_write_register(dev, MCP251XFD_REG_FIFOCON(fifo_num - 1) + 1, &clear_txreq, 1);
 
     return MCP251XFD_RETURN_OK;
 }
@@ -1295,7 +1273,7 @@ static mcp251xfd_return_t mcp251xfd_read_rx_object(MCP251XFD *dev, uint8_t fifo_
         return MCP251XFD_RETURN_RX_FIFO_EMPTY;
 
     uint16_t ua = (uint16_t)(mcp251xfd_read_word(dev, MCP251XFD_REG_FIFOUA(fifo_num - 1)) & 0x0FFF);
-    uint16_t obj_addr = (uint16_t)((dev->model == MODEL_MCP2518FD ? ua * 4u : ua) + MCP251XFD_RAM_START);
+    uint16_t obj_addr = (uint16_t)(ua + MCP251XFD_RAM_START);
 
     uint32_t t0 = mcp251xfd_read_word(dev, obj_addr);
     uint32_t t1 = mcp251xfd_read_word(dev, obj_addr + 4);
@@ -1320,9 +1298,10 @@ static mcp251xfd_return_t mcp251xfd_read_rx_object(MCP251XFD *dev, uint8_t fifo_
     if (data_len > 0)
         mcp251xfd_read_register(dev, obj_addr + 8, frame->data, data_len);
 
-    // Advance FIFO head pointer.
-    uint32_t fifocon = mcp251xfd_read_word(dev, MCP251XFD_REG_FIFOCON(fifo_num - 1));
-    mcp251xfd_write_word(dev, MCP251XFD_REG_FIFOCON(fifo_num - 1), fifocon | MCP251XFD_FIFOCON_UINC);
+    // Advance FIFO tail pointer — byte write to avoid disturbing config-protected bits.
+    // UINC (bit 8 = byte 1 bit 0)
+    const uint8_t uinc = 0x01;
+    mcp251xfd_write_register(dev, MCP251XFD_REG_FIFOCON(fifo_num - 1) + 1, &uinc, 1);
 
     return MCP251XFD_RETURN_OK;
 }
@@ -1379,8 +1358,9 @@ mcp251xfd_return_t mcp251xfd_flush_rx(MCP251XFD *dev, uint8_t fifo_num)
         return MCP251XFD_RETURN_INVALID_PARAM;
     }
 
-    uint32_t fifocon = mcp251xfd_read_word(dev, MCP251XFD_REG_FIFOCON(fifo_num - 1));
-    mcp251xfd_write_word(dev, MCP251XFD_REG_FIFOCON(fifo_num - 1), fifocon | MCP251XFD_FIFOCON_FRESET);
+    // FRESET (bit 10 = byte 1 bit 2)
+    const uint8_t freset = 0x04;
+    mcp251xfd_write_register(dev, MCP251XFD_REG_FIFOCON(fifo_num - 1) + 1, &freset, 1);
 
     return MCP251XFD_RETURN_OK;
 }
@@ -1514,21 +1494,9 @@ mcp251xfd_return_t mcp251xfd_get_model(MCP251XFD *dev, mcp251xfd_model_t *model)
     CHECK_NULL_PARAM(dev);
     CHECK_NULL_PARAM(model);
 
-    // DEV field is bits 3:0 of DEVID: 0xE = MCP2517FD, 0xC = MCP2518FD.
-    uint32_t devid = mcp251xfd_read_word(dev, MCP251XFD_REG_DEVID);
-    switch (devid & 0x0F)
-    {
-    case 0x0E:
-        *model = MODEL_MCP2517FD;
-        break;
-    case 0x0C:
-        *model = MODEL_MCP2518FD;
-        break;
-    default:
-        errorf("Unrecognised DEVID 0x%02X.", (unsigned)(devid & 0xFF));
-        return MCP251XFD_RETURN_ERROR;
-    }
-    dev->model = *model;
+    // Return the model that was specified in config at init time.
+    // Auto-detection from registers is unreliable after a SPI software reset.
+    *model = dev->model;
     return MCP251XFD_RETURN_OK;
 }
 
@@ -1570,7 +1538,7 @@ mcp251xfd_return_t mcp251xfd_read_tef(MCP251XFD *dev, mcp251xfd_tef_entry_t *ent
         return MCP251XFD_RETURN_RX_FIFO_EMPTY;
 
     uint16_t ua = (uint16_t)(mcp251xfd_read_word(dev, MCP251XFD_REG_CITEFUA) & 0x0FFF);
-    uint16_t obj_addr = (uint16_t)((dev->model == MODEL_MCP2518FD ? ua * 4u : ua) + MCP251XFD_RAM_START);
+    uint16_t obj_addr = (uint16_t)(ua + MCP251XFD_RAM_START);
 
     uint32_t t0 = mcp251xfd_read_word(dev, obj_addr);
     uint32_t t1 = mcp251xfd_read_word(dev, obj_addr + 4);

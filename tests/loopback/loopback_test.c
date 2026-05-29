@@ -2,18 +2,12 @@
  * @file loopback_test.c
  * @brief MCP251xFD loopback self-test for RP2350 (Raspberry Pi Pico 2).
  *
- * Exercises the lw_mcp251xfd driver by placing the MCP251xFD in internal
- * loopback mode and verifying that every transmitted frame is received back
- * intact.  Results are printed over USB serial at 115200 baud.
+ * Drives the lw_mcp251xfd driver in internal loopback mode and verifies that
+ * every transmitted frame is received back intact. Results print over USB
+ * serial at 115200 baud.
  *
- * Default wiring (SPI0):
- *   GPIO 2  — SCK
- *   GPIO 3  — MOSI (TX)
- *   GPIO 4  — MISO (RX)
- *   GPIO 5  — CS   (active-low, driven by this code)
- *
- * Change the MCP_* defines below if your board is wired differently.
- * Set MCP_FOSC to match the crystal on your MCP251xFD breakout board.
+ * Change MCP_* defines below to match your board wiring; set MCP_FOSC to the
+ * crystal frequency on your MCP251xFD breakout.
  */
 
 #include <stdio.h>
@@ -24,21 +18,21 @@
 #include "mcp251xfd.h"
 
 /* ---------- Hardware configuration ---------- */
-#define MCP_SPI_PORT spi1
-#define MCP_SPI_HZ 10000000u /* 4 MHz SPI clock                  */
-#define MCP_PIN_SCK 14u
-#define MCP_PIN_MOSI 15u
-#define MCP_PIN_MISO 12u
-#define MCP_PIN_CS 13u
-#define MCP_FOSC MCP251XFD_FOSC_40MHZ /* crystal on the breakout board */
+#define MCP_SPI_PORT spi0
+#define MCP_SPI_HZ 8000000u
+#define MCP_PIN_SCK 2u
+#define MCP_PIN_MOSI 3u
+#define MCP_PIN_MISO 4u
+#define MCP_PIN_CS 5u
+#define MCP_FOSC MCP251XFD_FOSC_40MHZ
 /* -------------------------------------------- */
 
 #define TX_FIFO 1u
 #define RX_FIFO 2u
-#define RX_TIMEOUT_US 10000u /* 10 ms per frame — plenty for loopback     */
+#define RX_TIMEOUT_US 10000u /* 10 ms per frame — plenty for loopback */
 
 /* ------------------------------------------------------------------ */
-/* SPI platform callbacks                                               */
+/* SPI platform callbacks — bridge the driver's HAL to pico-sdk SPI.    */
 /* ------------------------------------------------------------------ */
 
 typedef struct
@@ -47,12 +41,14 @@ typedef struct
     uint cs_pin;
 } spi_ctx_t;
 
+/* CS is active-low: enable=true drives the pin low. */
 static void chip_enable(void *iface, bool enable)
 {
     spi_ctx_t *c = (spi_ctx_t *)iface;
-    gpio_put(c->cs_pin, !enable); /* CS is active-low */
+    gpio_put(c->cs_pin, !enable);
 }
 
+/* Full-duplex SPI helper covering all three driver call patterns. */
 static void spi_xfer(void *iface, const uint8_t *tx, uint8_t *rx, size_t len)
 {
     spi_ctx_t *c = (spi_ctx_t *)iface;
@@ -74,6 +70,7 @@ static void wait_us(uint32_t us) { sleep_us(us); }
 static int pass_count;
 static int fail_count;
 
+/* Print a single test result line and update pass/fail counters. */
 static void report(const char *name, bool ok, const char *detail)
 {
     printf("  %-52s %s", name, ok ? "PASS" : "FAIL");
@@ -86,15 +83,20 @@ static void report(const char *name, bool ok, const char *detail)
         fail_count++;
 }
 
+/* Send one frame, wait for it to arrive in the RX FIFO, then compare. */
 static void run_test(MCP251XFD *dev, const char *name, const can_frame_t *tx)
 {
+    /* Flush any stale frames the previous test may have left behind. */
+    mcp251xfd_flush_rx(dev, RX_FIFO);
+
+    /* Queue the frame for transmission. */
     if (mcp251xfd_transmit(dev, TX_FIFO, tx) != MCP251XFD_RETURN_OK)
     {
-        report(name, false, "transmit failed");
+        report(name, false, mcp251xfd_get_error_msg());
         return;
     }
 
-    /* Poll for the frame to appear in the RX FIFO. */
+    /* Poll until at least one frame is sitting in the RX FIFO. */
     uint32_t t0 = time_us_32();
     uint8_t pending = 0;
     while (!pending)
@@ -107,6 +109,7 @@ static void run_test(MCP251XFD *dev, const char *name, const can_frame_t *tx)
         }
     }
 
+    /* Read it back and verify it matches what we sent. */
     can_frame_t rx;
     if (mcp251xfd_get_received(dev, RX_FIFO, &rx) != MCP251XFD_RETURN_OK)
     {
@@ -158,7 +161,7 @@ int main(void)
 
     printf("\n=== MCP251xFD Loopback Test (RP2350) ===\n\n");
 
-    /* Initialise SPI0. */
+    /* Bring up the SPI peripheral and CS GPIO. */
     spi_init(MCP_SPI_PORT, MCP_SPI_HZ);
     gpio_set_function(MCP_PIN_SCK, GPIO_FUNC_SPI);
     gpio_set_function(MCP_PIN_MOSI, GPIO_FUNC_SPI);
@@ -169,7 +172,7 @@ int main(void)
 
     spi_ctx_t ctx = {MCP_SPI_PORT, MCP_PIN_CS};
 
-    /* Allocate and initialise the driver. */
+    /* Allocate the driver instance. */
     MCP251XFD *dev = mcp251xfd_create_instance();
     if (!dev)
     {
@@ -177,11 +180,11 @@ int main(void)
         return 1;
     }
 
+    /* One TX FIFO and one RX FIFO, both 64-byte payloads. Depth 16 on RX
+     * keeps the total RAM budget under the chip's 2 KB limit. */
     mcp251xfd_fifo_config_t fifos[] = {
-        /* FIFO 1 — TX: depth 8, 64-byte payload */
         {.tx = true, .depth = 8, .payload = MCP251XFD_PLSIZE_64, .tx_priority = 0, .auto_rtr = false},
-        /* FIFO 2 — RX: depth 32, 64-byte payload */
-        {.tx = false, .depth = 32, .payload = MCP251XFD_PLSIZE_64, .tx_priority = 0, .auto_rtr = false},
+        {.tx = false, .depth = 16, .payload = MCP251XFD_PLSIZE_64, .tx_priority = 0, .auto_rtr = false},
     };
 
     mcp251xfd_config_t cfg = {
@@ -191,6 +194,7 @@ int main(void)
         .spi_transfer = spi_xfer,
         .iface = &ctx,
         .fosc = MCP_FOSC,
+        .model = MODEL_MCP2518FD,
         .nominal_baud = CAN_BAUD_500KBPS,
         .data_baud = CAN_BAUD_2MBPS,
         .enable_ecc = false,
@@ -198,6 +202,7 @@ int main(void)
         .fifo_count = 2,
     };
 
+    /* Reset the chip, configure clocks, FIFOs and bit timing. */
     printf("Initialising driver...    ");
     if (mcp251xfd_initialise(dev, &cfg) != MCP251XFD_RETURN_OK)
     {
@@ -212,13 +217,12 @@ int main(void)
         printf("Device identified as:               %s\n",
                model == MODEL_MCP2518FD ? "MCP2518FD" : "MCP2517FD");
 
-    /*
-     * Accept all standard frames on filter 0, all extended frames on filter 1,
-     * both routed to RX_FIFO.  Mask = 0 means all ID bits are don't-care.
-     */
+    /* Two accept-all filters route every standard (filter 0) and extended
+     * (filter 1) frame to RX_FIFO. Mask=0 means all ID bits are wildcards. */
     mcp251xfd_configure_filter(dev, 0, 0, 0, false, RX_FIFO);
     mcp251xfd_configure_filter(dev, 1, 0, 0, true, RX_FIFO);
 
+    /* Switch to internal loopback: TX frames feed straight into RX. */
     printf("Entering internal loopback mode...  ");
     if (mcp251xfd_change_opmode(dev, MCP251XFD_OPMODE_INTERNAL_LOOPBACK, 10000) != MCP251XFD_RETURN_OK)
     {
@@ -230,19 +234,19 @@ int main(void)
     /* -------- Test cases -------- */
     printf("Running tests:\n");
 
-    /* 1. Standard CAN frame, 8 bytes */
+    /* 1. Classic CAN, 11-bit ID, 8 data bytes. */
     {
         can_frame_t f = {.id = 0x123, .flags = 0, .dlc = 8, .data = {0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08}};
         run_test(dev, "Standard 11-bit ID, DLC=8", &f);
     }
 
-    /* 2. Extended CAN frame, 8 bytes */
+    /* 2. Classic CAN, 29-bit extended ID. */
     {
         can_frame_t f = {.id = 0x1ABCDEF, .flags = CAN_FRAME_FLAG_EEF, .dlc = 8, .data = {0xDE, 0xAD, 0xBE, 0xEF, 0xCA, 0xFE, 0xBA, 0xBE}};
         run_test(dev, "Extended 29-bit ID, DLC=8", &f);
     }
 
-    /* 3. CAN FD standard frame, 64 bytes */
+    /* 3. CAN FD with bit rate switch, max 64-byte payload. */
     {
         can_frame_t f;
         f.id = 0x456;
@@ -253,7 +257,7 @@ int main(void)
         run_test(dev, "Standard FD + BRS, DLC=15 (64 bytes)", &f);
     }
 
-    /* 4. CAN FD extended frame, 64 bytes */
+    /* 4. CAN FD + BRS with a 29-bit extended ID and full 64-byte payload. */
     {
         can_frame_t f;
         f.id = 0x18FFAA55;
@@ -264,7 +268,7 @@ int main(void)
         run_test(dev, "Extended FD + BRS, DLC=15 (64 bytes)", &f);
     }
 
-    /* 5. CAN FD standard frame, no BRS, 32 bytes */
+    /* 5. CAN FD without BRS, mid-sized 32-byte payload. */
     {
         can_frame_t f;
         f.id = 0x100;
@@ -275,27 +279,32 @@ int main(void)
         run_test(dev, "Standard FD, no BRS, DLC=13 (32 bytes)", &f);
     }
 
-    /* 6. Standard CAN, DLC=0 (zero-length data frame) */
+    /* 6. Zero-length classic frame with the largest standard ID. */
     {
         can_frame_t f = {.id = 0x7FF, .flags = 0, .dlc = 0};
         run_test(dev, "Standard 11-bit, DLC=0 (empty)", &f);
     }
 
-    /* 7. Extended CAN, DLC=0 */
+    /* 7. Zero-length extended frame with the largest 29-bit ID. */
     {
         can_frame_t f = {.id = 0x1FFFFFFF, .flags = CAN_FRAME_FLAG_EEF, .dlc = 0};
         run_test(dev, "Extended 29-bit, DLC=0 (empty)", &f);
     }
 
-    /* 8. Standard CAN, max ID, all-ones data */
+    /* 8. All-ones payload at maximum standard ID — checks data integrity. */
     {
         can_frame_t f = {.id = 0x7FF, .flags = 0, .dlc = 8, .data = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF}};
         run_test(dev, "Standard max ID (0x7FF), all-0xFF data", &f);
     }
 
-    /* 9. Multiple back-to-back standard frames */
+    /* 9. Queue 8 frames back-to-back without reading, then drain in order. */
     {
+        /* Start with an empty RX FIFO so we read exactly what we queue. */
+        mcp251xfd_flush_rx(dev, RX_FIFO);
+
         bool ok = true;
+
+        /* Burst of 8 short frames, IDs 0x200..0x207, payload = sequence number. */
         for (uint8_t n = 0; n < 8 && ok; n++)
         {
             can_frame_t f = {.id = (uint32_t)(0x200 + n), .flags = 0, .dlc = 1, .data = {n}};
@@ -305,6 +314,8 @@ int main(void)
                 break;
             }
         }
+
+        /* Read them back and check order + payload matches the burst. */
         if (ok)
         {
             for (uint8_t n = 0; n < 8 && ok; n++)
@@ -336,10 +347,11 @@ int main(void)
 
     mcp251xfd_destroy_instance(dev);
 
+    /* Drop into the USB bootloader immediately on any failure for fast iteration. */
     if (fail_count != 0)
         reset_usb_boot(0, 0);
 
-    /* Slow blink for 10 s on all-pass, then reboot to USB bootloader. */
+    /* On all-pass, blink GPIO 19 slowly for 10 s, then reboot to bootloader. */
     gpio_init(19);
     gpio_set_dir(19, GPIO_OUT);
     uint32_t deadline = time_us_32() + 10000000u;

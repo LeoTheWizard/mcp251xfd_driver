@@ -29,6 +29,11 @@ add_subdirectory(../.. lw_mcp251xfd_build)
 
 add_executable(loopback_test loopback_test.c)
 
+target_compile_definitions(loopback_test PRIVATE
+    MCP251XFD_DEBUG
+    MCP251XFD_ENABLE_ERROR_MESSAGES
+)
+
 target_link_libraries(loopback_test PRIVATE
     lw_mcp251xfd
     pico_stdlib

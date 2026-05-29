@@ -122,7 +122,7 @@ typedef struct mcp251xfd_fifo_config
 /**
  * @brief Calculates the RAM usage in bytes for a FIFO configuration.
  */
-uint8_t mcp251xfd_get_fifo_ram_usage(const mcp251xfd_fifo_config_t *config);
+uint32_t mcp251xfd_get_fifo_ram_usage(const mcp251xfd_fifo_config_t *config);
 
 /**
  * @struct mcp251xfd_config
@@ -161,6 +161,10 @@ typedef struct mcp251xfd_config
 
     // Enable or disable ECC error correction for the internal RAM of the MCP251xFD device.
     bool enable_ecc;
+
+    // Chip model. Set to MODEL_MCP2518FD or MODEL_MCP2517FD to match your hardware.
+    // Auto-detection is unreliable after a SPI software reset, so this must be set explicitly.
+    mcp251xfd_model_t model;
 
     // FIFO configurations.
     mcp251xfd_fifo_config_t *fifo_configs;

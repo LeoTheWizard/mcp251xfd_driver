@@ -18,12 +18,12 @@
 #include "mcp251xfd.h"
 
 /* ---------- Hardware configuration ---------- */
-#define MCP_SPI_PORT spi0
+#define MCP_SPI_PORT spi1
 #define MCP_SPI_HZ 8000000u
-#define MCP_PIN_SCK 2u
-#define MCP_PIN_MOSI 3u
-#define MCP_PIN_MISO 4u
-#define MCP_PIN_CS 5u
+#define MCP_PIN_SCK 14u
+#define MCP_PIN_MOSI 15u
+#define MCP_PIN_MISO 12u
+#define MCP_PIN_CS 13u
 #define MCP_FOSC MCP251XFD_FOSC_40MHZ
 /* -------------------------------------------- */
 

@@ -6,7 +6,7 @@ add_library(lw_mcp251xfd STATIC
 )
 
 target_include_directories(lw_mcp251xfd PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
 
 target_compile_features(lw_mcp251xfd PUBLIC c_std_99)

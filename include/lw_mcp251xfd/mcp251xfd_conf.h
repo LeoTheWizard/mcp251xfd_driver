@@ -20,6 +20,8 @@
  * @brief Define this macro to enable plain text error messages that can be retrieved with mcp251xfd_get_error_msg().
  * A 128-byte buffer is allocated for storing error messages.
  */
+#ifndef MCP251XFD_ENABLE_ERROR_MESSAGES
 #define MCP251XFD_ENABLE_ERROR_MESSAGES
+#endif
 
 #endif /* MCP2518FD_CONF_H */

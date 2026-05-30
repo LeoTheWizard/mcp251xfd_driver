@@ -10,8 +10,7 @@ add_library(lw_mcp251xfd STATIC
 add_library(lw_mcp251xfd::lw_mcp251xfd ALIAS lw_mcp251xfd)
 
 target_include_directories(lw_mcp251xfd PUBLIC
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>
-    $<INSTALL_INTERFACE:include>
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
 
 target_compile_features(lw_mcp251xfd PUBLIC c_std_99)

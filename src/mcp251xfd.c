@@ -14,7 +14,7 @@
 #include "stdio.h"
 #include "stdarg.h"
 
-#include "mcp251xfd.h"
+#include "lw_mcp251xfd/mcp251xfd.h"
 
 #pragma region Error Handling
 
@@ -179,21 +179,21 @@ enum mcp251xfd_eccstat_bits
 enum mcp251xfd_fifocon_bits
 {
     // Per MCP251xFD datasheet section 4.4.5.1 (CiFIFOCONm register).
-    MCP251XFD_FIFOCON_TFNRFNIE = (0x01 << 0),       // Not full (TX) / not empty (RX) interrupt enable.
-    MCP251XFD_FIFOCON_TFHRFHIE = (0x01 << 1),       // Half empty (TX) / half full (RX) interrupt enable.
-    MCP251XFD_FIFOCON_TFERFFIE = (0x01 << 2),       // Empty (TX) / full (RX) interrupt enable.
-    MCP251XFD_FIFOCON_RXOVIE = (0x01 << 3),         // RX overflow interrupt enable.
-    MCP251XFD_FIFOCON_TXATIE = (0x01 << 4),         // TX attempt interrupt enable.
-    MCP251XFD_FIFOCON_RXTSEN = (0x01 << 5),         // RX timestamp enable (RX only).
-    MCP251XFD_FIFOCON_RTREN = (0x01 << 6),          // Auto-RTR enable (TX only).
-    MCP251XFD_FIFOCON_TXEN = (0x01 << 7),           // 1 = TX FIFO, 0 = RX FIFO.
-    MCP251XFD_FIFOCON_UINC = (0x01 << 8),           // User Increment — advance FIFO pointer.
-    MCP251XFD_FIFOCON_TXREQ = (0x01 << 9),          // TX Request — start transmission.
-    MCP251XFD_FIFOCON_FRESET = (0x01 << 10),        // Reset FIFO head/tail pointers.
-    MCP251XFD_FIFOCON_TXPRI_MASK = (0x1F << 16),    // TX message priority (TX only).
-    MCP251XFD_FIFOCON_TXAT_MASK = (0x03 << 21),     // TX attempts (TX only).
-    MCP251XFD_FIFOCON_FSIZE_MASK = (0x1F << 24),    // FIFO depth (0=1 obj, 31=32 obj).
-    MCP251XFD_FIFOCON_PLSIZE_MASK = (0x07 << 29),   // Payload size.
+    MCP251XFD_FIFOCON_TFNRFNIE = (0x01 << 0),     // Not full (TX) / not empty (RX) interrupt enable.
+    MCP251XFD_FIFOCON_TFHRFHIE = (0x01 << 1),     // Half empty (TX) / half full (RX) interrupt enable.
+    MCP251XFD_FIFOCON_TFERFFIE = (0x01 << 2),     // Empty (TX) / full (RX) interrupt enable.
+    MCP251XFD_FIFOCON_RXOVIE = (0x01 << 3),       // RX overflow interrupt enable.
+    MCP251XFD_FIFOCON_TXATIE = (0x01 << 4),       // TX attempt interrupt enable.
+    MCP251XFD_FIFOCON_RXTSEN = (0x01 << 5),       // RX timestamp enable (RX only).
+    MCP251XFD_FIFOCON_RTREN = (0x01 << 6),        // Auto-RTR enable (TX only).
+    MCP251XFD_FIFOCON_TXEN = (0x01 << 7),         // 1 = TX FIFO, 0 = RX FIFO.
+    MCP251XFD_FIFOCON_UINC = (0x01 << 8),         // User Increment — advance FIFO pointer.
+    MCP251XFD_FIFOCON_TXREQ = (0x01 << 9),        // TX Request — start transmission.
+    MCP251XFD_FIFOCON_FRESET = (0x01 << 10),      // Reset FIFO head/tail pointers.
+    MCP251XFD_FIFOCON_TXPRI_MASK = (0x1F << 16),  // TX message priority (TX only).
+    MCP251XFD_FIFOCON_TXAT_MASK = (0x03 << 21),   // TX attempts (TX only).
+    MCP251XFD_FIFOCON_FSIZE_MASK = (0x1F << 24),  // FIFO depth (0=1 obj, 31=32 obj).
+    MCP251XFD_FIFOCON_PLSIZE_MASK = (0x07 << 29), // Payload size.
 };
 #define MCP251XFD_FIFOCON_TXPRI_SFT 16
 #define MCP251XFD_FIFOCON_FSIZE_SFT 24
@@ -201,7 +201,7 @@ enum mcp251xfd_fifocon_bits
 
 #define MCP251XFD_REG_FIFOCON(fifo_number) (MCP251XFD_REG_C1FIFOCON1 + ((fifo_number) * 12))
 #define MCP251XFD_REG_FIFOSTA(fifo_number) (MCP251XFD_REG_C1FIFOSTA1 + ((fifo_number) * 12))
-#define MCP251XFD_REG_FIFOUA(fifo_number)  (MCP251XFD_REG_C1FIFOUA1  + ((fifo_number) * 12))
+#define MCP251XFD_REG_FIFOUA(fifo_number) (MCP251XFD_REG_C1FIFOUA1 + ((fifo_number) * 12))
 
 #define MCP251XFD_REG_FLTCON(filter_number) (MCP251XFD_REG_C1FLTCON0 + (filter_number * 4))
 #define MCP251XFD_REG_FLTOBJ(filter_number) (MCP251XFD_REG_C1FLTOBJ0 + (filter_number * 8))

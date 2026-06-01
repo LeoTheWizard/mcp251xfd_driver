@@ -114,7 +114,7 @@ typedef struct mcp251xfd_fifo_config
 {
     bool tx;                    // true = transmit FIFO, false = receive FIFO.
     uint8_t depth;              // Number of message objects: 1–32.
-    mcp251xfd_plsize_t payload; // Payload bytes reserved per object.
+    uint8_t payload; // Payload bytes reserved per object. Use mcp251xfd_plsize_t values.
     uint8_t tx_priority;        // Arbitration priority 0–31, TX FIFOs only.
     bool auto_rtr;              // Auto-respond to remote frames, TX FIFOs only.
 } mcp251xfd_fifo_config_t;
@@ -151,20 +151,20 @@ typedef struct mcp251xfd_config
     void *iface;
 
     // External clock frequency selection for the MCP251xFD device. Select the correct frequency based on your board design.
-    mcp251xfd_fosc_t fosc;
+    uint32_t fosc; // Use mcp251xfd_fosc_t values.
 
     // Initial CAN bus baud rate for the nominal bit timing phase. Used during arbitration and control frames.
-    can_baudrates_t nominal_baud;
+    uint32_t nominal_baud; // Use can_baudrates_t values.
 
     // Initial CAN bus baud rate for the data bit timing phase. Used during CAN FD data frames when BRS is enabled.
-    can_baudrates_t data_baud;
+    uint32_t data_baud; // Use can_baudrates_t values.
 
     // Enable or disable ECC error correction for the internal RAM of the MCP251xFD device.
     bool enable_ecc;
 
     // Chip model. Set to MODEL_MCP2518FD or MODEL_MCP2517FD to match your hardware.
     // Auto-detection is unreliable after a SPI software reset, so this must be set explicitly.
-    mcp251xfd_model_t model;
+    uint8_t model; // Use mcp251xfd_model_t values.
 
     // FIFO configurations.
     mcp251xfd_fifo_config_t *fifo_configs;
@@ -754,7 +754,7 @@ typedef struct mcp251xfd_tef_config
 typedef struct mcp251xfd_tef_entry
 {
     uint32_t id;             // Frame identifier (11-bit or 29-bit depending on flags).
-    can_frame_flags_t flags; // Frame flags (EFF, FDF, BRS, ESI).
+    uint8_t flags; // Frame flags (EFF, FDF, BRS, ESI). Use can_frame_flags_t values.
     uint8_t dlc;             // Data length code of the transmitted frame.
     uint16_t timestamp;      // Hardware timestamp at transmission; valid only if TEF was configured with timestamps=true.
 } mcp251xfd_tef_entry_t;

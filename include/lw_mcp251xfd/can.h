@@ -39,10 +39,10 @@ typedef enum can_frame_flags
  */
 typedef struct can_frame
 {
-    uint32_t id;             // Frame Identifier.
-    can_frame_flags_t flags; // Frame flags, bitfield for eff(0x01), fd(0x02), brs(0x04), esi(0x08).
-    uint8_t dlc;             // Data length code, past 8 bytes does not match the length of the frame itself. refer to dlc_map.
-    uint8_t data[64];        // Frame payload data buffer.
+    uint32_t id;      // Frame Identifier.
+    uint8_t  flags;   // Frame flags, bitfield for eff(0x01), fd(0x02), brs(0x04), esi(0x08). Use can_frame_flags_t values.
+    uint8_t  dlc;     // Data length code, past 8 bytes does not match the length of the frame itself. refer to dlc_map.
+    uint8_t  data[64]; // Frame payload data buffer.
 } can_frame_t;
 
 /**

@@ -233,20 +233,17 @@ enum mcp251xfd_fifosta_bits
 #define MCP251XFD_T1_TIMESTAMP_SFT 16
 #define MCP251XFD_T1_TIMESTAMP_MASK (0xFFFFUL << 16)
 
-// IOCON register (0x0E04) bit positions.
+// IOCON register (0x0E04) bit offsets. The GPIOx pins are at the offset of
+// GPIO0 plus the pin index, so a per-pin bit is (base + pin).
 enum mcp251xfd_iocon_bits
 {
-    MCP251XFD_IOCON_TRIS0 = (1 << 0),   // GPIO0 direction: 1=input, 0=output.
-    MCP251XFD_IOCON_TRIS1 = (1 << 1),   // GPIO1 direction: 1=input, 0=output.
-    MCP251XFD_IOCON_TXCANOD = (1 << 4), // TXCAN pin open-drain mode.
-    MCP251XFD_IOCON_SOF = (1 << 5),     // SOF signal output on GPIO1/CLKO.
-    MCP251XFD_IOCON_INTOD = (1 << 6),   // INT pin open-drain mode.
-    MCP251XFD_IOCON_LAT0 = (1 << 8),    // GPIO0 output latch (driven value).
-    MCP251XFD_IOCON_LAT1 = (1 << 9),    // GPIO1 output latch.
-    MCP251XFD_IOCON_GPIO0 = (1 << 16),  // GPIO0 input read-back (sampled value).
-    MCP251XFD_IOCON_GPIO1 = (1 << 17),  // GPIO1 input read-back.
-    MCP251XFD_IOCON_PM0 = (1 << 24),    // GPIO0 pin mode: 1=GPIO, 0=INT1 alternate.
-    MCP251XFD_IOCON_PM1 = (1 << 25),    // GPIO1 pin mode: 1=GPIO, 0=CLKO alternate.
+    MCP251XFD_IOCON_TRIS0 = 0,   // GPIO0 direction: 1=input, 0=output.
+    MCP251XFD_IOCON_TXCANOD = 4, // TXCAN pin open-drain mode.
+    MCP251XFD_IOCON_SOF = 5,     // SOF signal output on GPIO1/CLKO.
+    MCP251XFD_IOCON_INTOD = 6,   // INT pin open-drain mode.
+    MCP251XFD_IOCON_LAT0 = 8,    // GPIO0 output latch (driven value).
+    MCP251XFD_IOCON_GPIO0 = 16,  // GPIO0 input read-back (sampled value).
+    MCP251XFD_IOCON_PM0 = 24,    // GPIO0 pin mode: 1=GPIO, 0=INT1 alternate.
 };
 
 // CiTREC register (0x0034) bit positions.
@@ -855,6 +852,15 @@ mcp251xfd_return_t mcp251xfd_configure_fifo(MCP251XFD *dev, uint8_t fifo_num, co
     fifocon |= (plsize << MCP251XFD_FIFOCON_PLSIZE_SFT) & MCP251XFD_FIFOCON_PLSIZE_MASK;
     fifocon |= MCP251XFD_FIFOCON_FRESET;
 
+    // Enable the RX FIFO "not empty" interrupt so CiINT.RXIF asserts when a frame
+    // arrives. CiINT.RXIF is a read-only OR of the per-FIFO flags whose enable is
+    // set here; it stays high until the FIFO is drained. The TX "not full" bit is
+    // deliberately left off: it is true whenever the TX FIFO has room (almost
+    // always), so enabling it would wedge CiINT.TXIF permanently set. Callers that
+    // want TX interrupts should enable them transiently when frames are queued.
+    if (!config->tx)
+        fifocon |= MCP251XFD_FIFOCON_TFNRFNIE;
+
     if (config->tx)
     {
         fifocon |= MCP251XFD_FIFOCON_TXEN;
@@ -985,7 +991,10 @@ mcp251xfd_return_t mcp251xfd_clear_interrupt_flags(MCP251XFD *dev, uint32_t clea
 {
     CHECK_NULL_PARAM(dev);
 
-    // Writing 0 to a flag bit clears it; preserve enable bits and any flags not in clear_mask.
+    // Writing 0 clears the latched flags (e.g. mode-change, system/RAM errors).
+    // Note: TXIF/RXIF/TBCIF are read-only summaries of live FIFO state and are
+    // NOT affected by this write — clear RXIF by draining the RX FIFO and TXIF by
+    // filling the TX FIFO. Preserve enable bits and any flags not in clear_mask.
     uint32_t ciint = mcp251xfd_read_word(dev, MCP251XFD_REG_CIINT);
     ciint &= ~(clear_mask & 0xFFFF);
     mcp251xfd_write_word(dev, MCP251XFD_REG_CIINT, ciint);
@@ -1433,37 +1442,42 @@ mcp251xfd_return_t mcp251xfd_recover_bus_off(MCP251XFD *dev, uint32_t timeout_us
 
 #pragma region GPIO Control
 
-static mcp251xfd_return_t mcp251xfd_iocon_set_bit(MCP251XFD *dev, uint32_t bit_mask, bool value)
+static mcp251xfd_return_t mcp251xfd_iocon_set_bit(MCP251XFD *dev, uint8_t bit_offset, bool value)
 {
-    uint32_t iocon = mcp251xfd_read_word(dev, MCP251XFD_REG_IOCON);
-    iocon = value ? (iocon | bit_mask) : (iocon & ~bit_mask);
-    mcp251xfd_write_word(dev, MCP251XFD_REG_IOCON, iocon);
+    // IOCON bits should only be accessed via single byte writes. See datasheet.
+    uint8_t byte_index = bit_offset / 8;
+    uint8_t byte_mask = 1 << (bit_offset % 8);
+
+    uint8_t byte_value;
+    mcp251xfd_read_register(dev, MCP251XFD_REG_IOCON + byte_index, &byte_value, 1);
+    byte_value = value ? (byte_value | byte_mask) : (byte_value & ~byte_mask);
+    mcp251xfd_write_register(dev, MCP251XFD_REG_IOCON + byte_index, &byte_value, 1);
     return MCP251XFD_RETURN_OK;
 }
 
 mcp251xfd_return_t mcp251xfd_gpio_set_mode(MCP251XFD *dev, mcp251xfd_gpio_pin_t pin, mcp251xfd_gpio_mode_t mode)
 {
     CHECK_NULL_PARAM(dev);
-    return mcp251xfd_iocon_set_bit(dev, MCP251XFD_IOCON_PM0 << pin, mode == MCP251XFD_GPIO_MODE_GPIO);
+    return mcp251xfd_iocon_set_bit(dev, MCP251XFD_IOCON_PM0 + pin, mode == MCP251XFD_GPIO_MODE_GPIO);
 }
 
 mcp251xfd_return_t mcp251xfd_gpio_set_direction(MCP251XFD *dev, mcp251xfd_gpio_pin_t pin, mcp251xfd_gpio_dir_t dir)
 {
     CHECK_NULL_PARAM(dev);
-    return mcp251xfd_iocon_set_bit(dev, MCP251XFD_IOCON_TRIS0 << pin, dir == MCP251XFD_GPIO_INPUT);
+    return mcp251xfd_iocon_set_bit(dev, MCP251XFD_IOCON_TRIS0 + pin, dir == MCP251XFD_GPIO_INPUT);
 }
 
 mcp251xfd_return_t mcp251xfd_gpio_write(MCP251XFD *dev, mcp251xfd_gpio_pin_t pin, bool value)
 {
     CHECK_NULL_PARAM(dev);
-    return mcp251xfd_iocon_set_bit(dev, MCP251XFD_IOCON_LAT0 << pin, value);
+    return mcp251xfd_iocon_set_bit(dev, MCP251XFD_IOCON_LAT0 + pin, value);
 }
 
 mcp251xfd_return_t mcp251xfd_gpio_read(MCP251XFD *dev, mcp251xfd_gpio_pin_t pin, bool *value)
 {
     CHECK_NULL_PARAM(dev);
     CHECK_NULL_PARAM(value);
-    *value = (mcp251xfd_read_word(dev, MCP251XFD_REG_IOCON) & (MCP251XFD_IOCON_GPIO0 << pin)) != 0;
+    *value = (mcp251xfd_read_word(dev, MCP251XFD_REG_IOCON) & (1UL << (MCP251XFD_IOCON_GPIO0 + pin))) != 0;
     return MCP251XFD_RETURN_OK;
 }
 

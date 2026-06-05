@@ -359,6 +359,8 @@ struct mcp2518fd_priv
     mcp251xfd_fosc_t sysclk;
     mcp251xfd_model_t model;
     bool tef_timestamps; // True if TEF was configured with timestamps=true.
+    bool use_crc;        // Route register access through CRC commands (enabled after osc bring-up).
+    bool crc_error;      // Sticky: set when a CRC read fails after all retries.
 };
 
 MCP251XFD *mcp251xfd_create_instance(void)
@@ -379,6 +381,16 @@ void mcp251xfd_destroy_instance(MCP251XFD *instance)
         return; // Nothing to free.
 
     free(instance);
+}
+
+bool mcp251xfd_get_spi_crc_error(MCP251XFD *dev, bool clear)
+{
+    if (dev == NULL)
+        return false;
+    bool had_error = dev->crc_error;
+    if (clear)
+        dev->crc_error = false;
+    return had_error;
 }
 
 #pragma endregion Instance Lifecycle
@@ -406,9 +418,19 @@ enum mcp251xfd_spi_cmds
     MCP251XFD_SPI_WRITE_SAFE = 0x0C
 };
 
+// CRC-protected transfer helpers, defined further down but referenced by the
+// plain register accessors so they can transparently switch to CRC mode once the
+// oscillator is confirmed stable (dev->use_crc). See mcp251xfd_initialise().
+static void mcp251xfd_write_register_crc(MCP251XFD *dev, uint16_t reg_addr, const uint8_t *data, size_t length);
+static mcp251xfd_return_t mcp251xfd_read_register_crc(MCP251XFD *dev, uint16_t reg_addr, uint8_t *data, size_t length);
+
 /**
  * @brief Writes a data buffer to the MCP251xFD device memory provided a starting register address.
  * Address pointer automatically increments after each word written to memory.
+ *
+ * When dev->use_crc is set, the transfer is routed through the CRC-protected
+ * write command. CRC writes are fire-and-forget: the device validates the CRC and
+ * silently discards the write on mismatch, so there is no per-call status here.
  *
  * @param dev The MCP251xFD device instance.
  * @param reg_addr The starting register address to write to.
@@ -417,6 +439,12 @@ enum mcp251xfd_spi_cmds
  */
 static void mcp251xfd_write_register(MCP251XFD *dev, uint16_t reg_addr, const uint8_t *data, size_t length)
 {
+    if (dev->use_crc)
+    {
+        mcp251xfd_write_register_crc(dev, reg_addr, data, length);
+        return;
+    }
+
     // Command buffer
     uint8_t cmd[2] = {MCP251XFD_SPI_WRITE << 4 | ((reg_addr >> 8) & 0x0F), reg_addr & 0xFF};
 
@@ -437,6 +465,22 @@ static void mcp251xfd_write_register(MCP251XFD *dev, uint16_t reg_addr, const ui
  */
 static void mcp251xfd_read_register(MCP251XFD *dev, uint16_t reg_addr, uint8_t *data, size_t length)
 {
+    if (dev->use_crc)
+    {
+        // The MCP251xFD can occasionally return corrupted READ data at high SPI
+        // clocks; the datasheet errata workaround is to use READ_CRC and retry on
+        // mismatch. After MCP251XFD_CRC_RETRIES failures we latch a sticky error
+        // (queryable via mcp251xfd_get_spi_crc_error) and return the last attempt.
+        for (uint8_t attempt = 0; attempt < MCP251XFD_CRC_RETRIES; attempt++)
+        {
+            if (mcp251xfd_read_register_crc(dev, reg_addr, data, length) == MCP251XFD_RETURN_OK)
+                return;
+        }
+        dev->crc_error = true;
+        errorf("SPI CRC read error at 0x%04X after %d attempts.", reg_addr, MCP251XFD_CRC_RETRIES);
+        return; // Best effort: data holds the last (unverified) attempt.
+    }
+
     // Command buffer
     uint8_t cmd[2] = {MCP251XFD_SPI_READ << 4 | ((reg_addr >> 8) & 0x0F), reg_addr & 0xFF};
 
@@ -476,10 +520,13 @@ static uint32_t mcp251xfd_read_word(MCP251XFD *dev, uint16_t reg_addr)
  */
 static void mcp251xfd_write_register_crc(MCP251XFD *dev, uint16_t reg_addr, const uint8_t *data, size_t length)
 {
+    // The length field is a byte count for SFR/register access but a word count
+    // for message RAM (0x400-0xBFF); the device decodes it by address region.
+    bool from_ram = (reg_addr >= MCP251XFD_RAM_START && reg_addr <= MCP251XFD_RAM_END);
     uint8_t cmd[3] = {
         MCP251XFD_SPI_WRITE_CRC << 4 | ((reg_addr >> 8) & 0x0F),
         reg_addr & 0xFF,
-        (uint8_t)(length / 4)};
+        (uint8_t)(from_ram ? (length / 4) : length)};
 
     uint16_t crc = crc16_compute(0xFFFF, cmd, 3);
     crc = crc16_compute(crc, data, length);
@@ -494,26 +541,28 @@ static void mcp251xfd_write_register_crc(MCP251XFD *dev, uint16_t reg_addr, cons
 
 /**
  * @brief Reads data from the MCP251xFD device with CRC verification.
- * Sends a CRC of the command header; verifies the CRC returned by the device over the full frame.
+ * The host sends only the command header (cmd + address + length); the device then
+ * drives the data followed by a CRC computed over the header and that data. No host
+ * command CRC is transmitted on a read.
  *
  * @return MCP251XFD_RETURN_OK on success, MCP251XFD_RETURN_CRC_ERROR if the received CRC does not match.
  */
 static mcp251xfd_return_t mcp251xfd_read_register_crc(MCP251XFD *dev, uint16_t reg_addr, uint8_t *data, size_t length)
 {
+    // The length field is a byte count for SFR/register access but a word count
+    // for message RAM (0x400-0xBFF); the device decodes it by address region.
+    bool from_ram = (reg_addr >= MCP251XFD_RAM_START && reg_addr <= MCP251XFD_RAM_END);
     uint8_t cmd[3] = {
         MCP251XFD_SPI_READ_CRC << 4 | ((reg_addr >> 8) & 0x0F),
         reg_addr & 0xFF,
-        (uint8_t)(length / 4)};
+        (uint8_t)(from_ram ? (length / 4) : length)};
 
-    uint16_t cmd_crc = crc16_compute(0xFFFF, cmd, 3);
-    uint8_t cmd_crc_bytes[2] = {(uint8_t)(cmd_crc >> 8), (uint8_t)(cmd_crc & 0xFF)};
     uint8_t rx_crc_bytes[2];
 
     dev->chip_enable(dev->iface, true);
-    dev->spi_transfer(dev->iface, cmd, NULL, 3);
-    dev->spi_transfer(dev->iface, cmd_crc_bytes, NULL, 2);
-    dev->spi_transfer(dev->iface, NULL, data, length);
-    dev->spi_transfer(dev->iface, NULL, rx_crc_bytes, 2);
+    dev->spi_transfer(dev->iface, cmd, NULL, 3);          // command + address + length
+    dev->spi_transfer(dev->iface, NULL, data, length);    // data driven by the device
+    dev->spi_transfer(dev->iface, NULL, rx_crc_bytes, 2); // CRC driven by the device
     dev->chip_enable(dev->iface, false);
 
     // Device CRC covers cmd header + received data.
@@ -522,34 +571,6 @@ static mcp251xfd_return_t mcp251xfd_read_register_crc(MCP251XFD *dev, uint16_t r
     uint16_t received = ((uint16_t)rx_crc_bytes[0] << 8) | rx_crc_bytes[1];
 
     return (received == expected) ? MCP251XFD_RETURN_OK : MCP251XFD_RETURN_CRC_ERROR;
-}
-
-/**
- * @brief Writes a 32-bit word to the specified register address with CRC protection.
- */
-static void mcp251xfd_write_word_crc(MCP251XFD *dev, uint16_t reg_addr, uint32_t word)
-{
-    uint8_t data[4] = {
-        (word >> 0) & 0xFF,
-        (word >> 8) & 0xFF,
-        (word >> 16) & 0xFF,
-        (word >> 24) & 0xFF};
-    mcp251xfd_write_register_crc(dev, reg_addr, data, 4);
-}
-
-/**
- * @brief Reads a 32-bit word from the specified register address with CRC verification.
- *
- * @param word Output pointer for the read value; only written on MCP251XFD_RETURN_OK.
- * @return MCP251XFD_RETURN_OK on success, MCP251XFD_RETURN_CRC_ERROR on CRC mismatch.
- */
-static mcp251xfd_return_t mcp251xfd_read_word_crc(MCP251XFD *dev, uint16_t reg_addr, uint32_t *word)
-{
-    uint8_t data[4];
-    mcp251xfd_return_t ret = mcp251xfd_read_register_crc(dev, reg_addr, data, 4);
-    if (ret == MCP251XFD_RETURN_OK)
-        *word = ((uint32_t)data[0] << 0) | ((uint32_t)data[1] << 8) | ((uint32_t)data[2] << 16) | ((uint32_t)data[3] << 24);
-    return ret;
 }
 
 /**
@@ -1062,6 +1083,11 @@ mcp251xfd_return_t mcp251xfd_initialise(MCP251XFD *dev, mcp251xfd_config_t *conf
 
     dev->initialised = false;
 
+    // Reset and oscillator bring-up must use plain (non-CRC) SPI: the device can
+    // only compute SPI CRCs once its system clock is running and stable.
+    dev->use_crc = false;
+    dev->crc_error = false;
+
     /// Reset device.
     mcp251xfd_reset_device(dev);
     dev->delay(2000);
@@ -1072,6 +1098,9 @@ mcp251xfd_return_t mcp251xfd_initialise(MCP251XFD *dev, mcp251xfd_config_t *conf
         errorf("Oscillator did not stabilise. Check crystal and power supply.");
         return MCP251XFD_RETURN_ERROR;
     }
+
+    // Clock is stable; from here on honour the caller's CRC preference.
+    dev->use_crc = config->use_crc;
 
     mcp251xfd_change_opmode(dev, MCP251XFD_OPMODE_CONFIG, 1000000);
 

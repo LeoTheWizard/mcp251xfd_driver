@@ -331,7 +331,7 @@ typedef struct mcp251xfd_bit_timing
  * Writes CINBTCFG (and CIDBTCFG if @p data is non-NULL); call in configuration mode.
  *
  * @param dev     The MCP251xFD device instance.
- * @param nominal Nominal (arbitration) phase segments. Required.
+ * @param nominal Nominal (arbitration) phase segments, or NULL to leave CINBTCFG unchanged.
  * @param data    Data (CAN FD) phase segments, or NULL to leave CIDBTCFG unchanged.
  *
  * @return MCP251XFD_RETURN_OK on success, MCP251XFD_RETURN_INVALID_PARAM if any

@@ -839,16 +839,18 @@ mcp251xfd_return_t mcp251xfd_set_bit_timing(MCP251XFD *dev,
                                             const mcp251xfd_bit_timing_t *data)
 {
     CHECK_NULL_PARAM(dev);
-    CHECK_NULL_PARAM(nominal);
 
-    uint32_t nbtcfg;
-    // Nominal phase: TSEG1 ≤ 256, TSEG2 ≤ 128, SJW ≤ 128 (CINBTCFG datasheet limits).
-    if (mcp251xfd_pack_bit_timing(nominal, 256, 128, 128, &nbtcfg) != MCP251XFD_RETURN_OK)
+    if (nominal != NULL)
     {
-        errorf("Invalid nominal bit timing segment values.");
-        return MCP251XFD_RETURN_INVALID_PARAM;
+        uint32_t nbtcfg;
+        // Nominal phase: TSEG1 ≤ 256, TSEG2 ≤ 128, SJW ≤ 128 (CINBTCFG datasheet limits).
+        if (mcp251xfd_pack_bit_timing(nominal, 256, 128, 128, &nbtcfg) != MCP251XFD_RETURN_OK)
+        {
+            errorf("Invalid nominal bit timing segment values.");
+            return MCP251XFD_RETURN_INVALID_PARAM;
+        }
+        mcp251xfd_write_word(dev, MCP251XFD_REG_CINBTCFG, nbtcfg);
     }
-    mcp251xfd_write_word(dev, MCP251XFD_REG_CINBTCFG, nbtcfg);
 
     if (data != NULL)
     {

@@ -789,6 +789,64 @@ mcp251xfd_return_t mcp251xfd_set_baudrates(MCP251XFD *dev, can_baudrates_t nomin
     return MCP251XFD_RETURN_OK;
 }
 
+/**
+ * @brief Validates one phase's segments and packs them into NBTCFG/DBTCFG layout.
+ *
+ * Each field is stored as (actual − 1): BRP[31:24], TSEG1[23:16], TSEG2[14:8], SJW[6:0]
+ * (the data-phase register uses narrower fields within the same byte positions).
+ */
+static mcp251xfd_return_t mcp251xfd_pack_bit_timing(const mcp251xfd_bit_timing_t *bt,
+                                                    uint16_t tseg1_max, uint8_t tseg2_max,
+                                                    uint8_t sjw_max, uint32_t *btcfg)
+{
+    if (bt->brp < 1 || bt->brp > 256 ||
+        bt->tseg1 < 1 || bt->tseg1 > tseg1_max ||
+        bt->tseg2 < 1 || bt->tseg2 > tseg2_max ||
+        bt->sjw < 1 || bt->sjw > sjw_max ||
+        bt->sjw > bt->tseg2)
+    {
+        return MCP251XFD_RETURN_INVALID_PARAM;
+    }
+
+    *btcfg = ((uint32_t)(bt->brp - 1) << 24) |
+             ((uint32_t)(bt->tseg1 - 1) << 16) |
+             ((uint32_t)(bt->tseg2 - 1) << 8) |
+             ((uint32_t)(bt->sjw - 1) << 0);
+
+    return MCP251XFD_RETURN_OK;
+}
+
+mcp251xfd_return_t mcp251xfd_set_bit_timing(MCP251XFD *dev,
+                                            const mcp251xfd_bit_timing_t *nominal,
+                                            const mcp251xfd_bit_timing_t *data)
+{
+    CHECK_NULL_PARAM(dev);
+    CHECK_NULL_PARAM(nominal);
+
+    uint32_t nbtcfg;
+    // Nominal phase: TSEG1 ≤ 256, TSEG2 ≤ 128, SJW ≤ 128 (CINBTCFG datasheet limits).
+    if (mcp251xfd_pack_bit_timing(nominal, 256, 128, 128, &nbtcfg) != MCP251XFD_RETURN_OK)
+    {
+        errorf("Invalid nominal bit timing segment values.");
+        return MCP251XFD_RETURN_INVALID_PARAM;
+    }
+    mcp251xfd_write_word(dev, MCP251XFD_REG_CINBTCFG, nbtcfg);
+
+    if (data != NULL)
+    {
+        uint32_t dbtcfg;
+        // Data phase: TSEG1 ≤ 32, TSEG2 ≤ 16, SJW ≤ 16 (CIDBTCFG datasheet limits).
+        if (mcp251xfd_pack_bit_timing(data, 32, 16, 16, &dbtcfg) != MCP251XFD_RETURN_OK)
+        {
+            errorf("Invalid data bit timing segment values.");
+            return MCP251XFD_RETURN_INVALID_PARAM;
+        }
+        mcp251xfd_write_word(dev, MCP251XFD_REG_CIDBTCFG, dbtcfg);
+    }
+
+    return MCP251XFD_RETURN_OK;
+}
+
 uint32_t mcp251xfd_get_fifo_ram_usage(const mcp251xfd_fifo_config_t *config)
 {
     return (uint32_t)config->depth * (8u + (uint32_t)config->payload);
@@ -1124,22 +1182,27 @@ mcp251xfd_return_t mcp251xfd_initialise(MCP251XFD *dev, mcp251xfd_config_t *conf
     }
     else
     {
-        // If no FIFOs configured enable TX queue and one RX FIFO at maximum depth with 64-byte payload.
+        // No FIFOs configured: provide a sensible default of a TX queue plus one RX FIFO,
+        // both with 64-byte payloads. Message RAM is 2 KB and each 64-byte object costs
+        // 8 + 64 = 72 bytes, so depths are chosen to fit the budget:
+        //   TX queue 8 + RX FIFO 20 = 28 objects = 2016 bytes (<= 2048).
+        const uint8_t default_txq_depth = 8;
+        const uint8_t default_rx_depth  = 20;
 
         // Enable TX queue in CiCON (config mode only).
         uint32_t cicon = mcp251xfd_read_word(dev, MCP251XFD_REG_CICON);
         mcp251xfd_write_word(dev, MCP251XFD_REG_CICON, cicon | MCP251XFD_CICON_TXQEN);
 
-        // TX queue: depth=32 (FSIZE=31), payload=64 (PLSIZE=7), reset head/tail.
-        uint32_t txqcon = (31 << MCP251XFD_FIFOCON_FSIZE_SFT) |
+        // TX queue: payload=64 (PLSIZE=7), FSIZE=depth-1, reset head/tail.
+        uint32_t txqcon = ((uint32_t)(default_txq_depth - 1) << MCP251XFD_FIFOCON_FSIZE_SFT) |
                           (7 << MCP251XFD_FIFOCON_PLSIZE_SFT) |
                           MCP251XFD_FIFOCON_FRESET;
         mcp251xfd_write_word(dev, MCP251XFD_REG_CITXQCON, txqcon);
 
-        // FIFO 1 as RX: depth=32, payload=64.
+        // FIFO 1 as RX, payload=64.
         mcp251xfd_fifo_config_t default_rx = {
             .tx = false,
-            .depth = 32,
+            .depth = default_rx_depth,
             .payload = MCP251XFD_PLSIZE_64,
         };
         mcp251xfd_configure_fifo(dev, 1, &default_rx, NULL);

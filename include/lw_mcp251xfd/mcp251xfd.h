@@ -286,6 +286,44 @@ mcp251xfd_return_t mcp251xfd_set_baudrates(MCP251XFD *dev,
                                            can_baudrates_t data_baud);
 
 /**
+ * @struct mcp251xfd_bit_timing
+ * @brief Bit-timing segments for one CAN phase, as actual time-quanta counts
+ *        (not register-encoded — the driver subtracts 1 per field when packing).
+ *
+ * These map one-to-one onto Linux SocketCAN's struct can_bittiming:
+ *   brp   = bittiming.brp
+ *   tseg1 = bittiming.prop_seg + bittiming.phase_seg1
+ *   tseg2 = bittiming.phase_seg2
+ *   sjw   = bittiming.sjw
+ */
+typedef struct mcp251xfd_bit_timing
+{
+    uint16_t brp;   /**< Baud rate prescaler: 1-256. */
+    uint16_t tseg1; /**< Time segment 1 (prop + phase 1): 1-256 nominal, 1-32 data. */
+    uint8_t  tseg2; /**< Time segment 2 (phase 2): 1-128 nominal, 1-16 data. */
+    uint8_t  sjw;   /**< Sync jump width: 1-128 nominal, 1-16 data; must be <= tseg2. */
+} mcp251xfd_bit_timing_t;
+
+/**
+ * @brief Sets nominal (and optionally data) bit timing from explicit segment values.
+ *
+ * Use this instead of mcp251xfd_set_baudrates() when the caller computes its own
+ * bit timing rather than a target baud rate — e.g. a Linux SocketCAN driver, where
+ * the kernel derives the segments from the requested bitrate and controller clock.
+ * Writes CINBTCFG (and CIDBTCFG if @p data is non-NULL); call in configuration mode.
+ *
+ * @param dev     The MCP251xFD device instance.
+ * @param nominal Nominal (arbitration) phase segments. Required.
+ * @param data    Data (CAN FD) phase segments, or NULL to leave CIDBTCFG unchanged.
+ *
+ * @return MCP251XFD_RETURN_OK on success, MCP251XFD_RETURN_INVALID_PARAM if any
+ *         segment is out of range for its phase, or a null required parameter.
+ */
+mcp251xfd_return_t mcp251xfd_set_bit_timing(MCP251XFD *dev,
+                                            const mcp251xfd_bit_timing_t *nominal,
+                                            const mcp251xfd_bit_timing_t *data);
+
+/**
  * FIFO and Filter Configuration
  *
  */

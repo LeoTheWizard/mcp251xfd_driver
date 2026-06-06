@@ -1295,10 +1295,14 @@ mcp251xfd_return_t mcp251xfd_transmit(MCP251XFD *dev, uint8_t fifo_num, const ca
     uint16_t obj_addr = (uint16_t)(ua + MCP251XFD_RAM_START);
 
     bool extended = (frame->flags & CAN_FRAME_FLAG_EEF) != 0;
+    // RTR (remote request) is classic-CAN only and carries no data; FD frames have no RTR bit.
+    bool remote = (frame->flags & CAN_FRAME_FLAG_RTR) != 0 && (frame->flags & CAN_FRAME_FLAG_FDF) == 0;
     uint32_t t0 = mcp251xfd_pack_id(frame->id, extended);
     uint32_t t1 = (frame->dlc & 0x0F);
     if (extended)
         t1 |= MCP251XFD_T1_IDE;
+    if (remote)
+        t1 |= MCP251XFD_T1_RTR;
     if (frame->flags & CAN_FRAME_FLAG_FDF)
         t1 |= MCP251XFD_T1_FDF;
     if (frame->flags & CAN_FRAME_FLAG_BRS)
@@ -1309,7 +1313,8 @@ mcp251xfd_return_t mcp251xfd_transmit(MCP251XFD *dev, uint8_t fifo_num, const ca
     mcp251xfd_write_word(dev, obj_addr, t0);
     mcp251xfd_write_word(dev, obj_addr + 4, t1);
 
-    uint8_t data_len = can_frame_get_length(frame);
+    // A remote frame transmits its DLC but no data bytes.
+    uint8_t data_len = remote ? 0 : can_frame_get_length(frame);
     if (data_len > 0)
         mcp251xfd_write_register(dev, obj_addr + 8, frame->data, data_len);
 
@@ -1386,9 +1391,12 @@ static mcp251xfd_return_t mcp251xfd_read_rx_object(MCP251XFD *dev, uint8_t fifo_
     frame->id = extended
                     ? (((t0 & 0x7FF) << 18) | ((t0 >> 11) & 0x3FFFF))
                     : (t0 & 0x7FF);
+    bool remote = (t1 & MCP251XFD_T1_RTR) != 0;
     frame->flags = 0;
     if (extended)
         frame->flags |= CAN_FRAME_FLAG_EEF;
+    if (remote)
+        frame->flags |= CAN_FRAME_FLAG_RTR;
     if (t1 & MCP251XFD_T1_FDF)
         frame->flags |= CAN_FRAME_FLAG_FDF;
     if (t1 & MCP251XFD_T1_BRS)
@@ -1397,7 +1405,8 @@ static mcp251xfd_return_t mcp251xfd_read_rx_object(MCP251XFD *dev, uint8_t fifo_
         frame->flags |= CAN_FRAME_FLAG_ESI;
     frame->dlc = (uint8_t)(t1 & MCP251XFD_T1_DLC_MASK);
 
-    uint8_t data_len = can_frame_get_length(frame);
+    // A remote frame carries its DLC but no data bytes.
+    uint8_t data_len = remote ? 0 : can_frame_get_length(frame);
     if (data_len > 0)
         mcp251xfd_read_register(dev, obj_addr + 8, frame->data, data_len);
 
@@ -1659,6 +1668,8 @@ mcp251xfd_return_t mcp251xfd_read_tef(MCP251XFD *dev, mcp251xfd_tef_entry_t *ent
     entry->flags = 0;
     if (extended)
         entry->flags |= CAN_FRAME_FLAG_EEF;
+    if (t1 & MCP251XFD_T1_RTR)
+        entry->flags |= CAN_FRAME_FLAG_RTR;
     if (t1 & MCP251XFD_T1_FDF)
         entry->flags |= CAN_FRAME_FLAG_FDF;
     if (t1 & MCP251XFD_T1_BRS)

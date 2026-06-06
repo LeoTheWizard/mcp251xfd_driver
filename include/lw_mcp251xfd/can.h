@@ -30,7 +30,8 @@ typedef enum can_frame_flags
     CAN_FRAME_FLAG_EEF = 0x01, // Extended Frame Format (EFF) flag
     CAN_FRAME_FLAG_FDF = 0x02, // CAN FD Frame (FDF) flag
     CAN_FRAME_FLAG_BRS = 0x04, // Bit Rate Switch (BRS) flag
-    CAN_FRAME_FLAG_ESI = 0x08  // Error State Indicator (ESI) flag
+    CAN_FRAME_FLAG_ESI = 0x08, // Error State Indicator (ESI) flag
+    CAN_FRAME_FLAG_RTR = 0x10  // Remote Transmission Request (classic CAN only; carries no data)
 } can_frame_flags_t;
 
 /**
@@ -40,7 +41,7 @@ typedef enum can_frame_flags
 typedef struct can_frame
 {
     uint32_t id;      // Frame Identifier.
-    uint8_t  flags;   // Frame flags, bitfield for eff(0x01), fd(0x02), brs(0x04), esi(0x08). Use can_frame_flags_t values.
+    uint8_t  flags;   // Frame flags: eff(0x01), fd(0x02), brs(0x04), esi(0x08), rtr(0x10). Use can_frame_flags_t values.
     uint8_t  dlc;     // Data length code, past 8 bytes does not match the length of the frame itself. refer to dlc_map.
     uint8_t  data[64]; // Frame payload data buffer.
 } can_frame_t;

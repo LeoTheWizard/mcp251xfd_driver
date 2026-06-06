@@ -2,9 +2,9 @@
  * @file mcp2518fd.h
  * @brief Driver interface for the MicroChip MCP251xFD family of external SPI CAN controllers.
  *
- * @details This modules provides the ability to drive the CAN controller over SPI, allowing transmission of CAN frames on a CAN bus.
+ * @details This module provides the ability to drive the CAN controller over SPI, allowing transmission of CAN frames on a CAN bus.
  * The MCP251xFD family of controllers support both CAN 2.0 and CAN FD frames, and this driver is designed to support both frame types.
- * This driver is dependent on an SPI bus and requires functions for chip enable control and SPI data transfer.
+ * This driver is dependent on an SPI bus and requires functions for chip enable control and SPI data transfer as well as timing functions.
  *
  * @ref Datasheet @ https://ww1.microchip.com/downloads/aemDocuments/documents/OTH/ProductDocuments/DataSheets/External-CAN-FD-Controller-with-SPI-Interface-DS20006027B.pdf
  * @ref Reference Manual @ https://ww1.microchip.com/downloads/aemDocuments/documents/OTH/ProductDocuments/ReferenceManuals/MCP25XXFD-CAN-FD-Controller-Module-Family-Reference-Manual-DS20005678E.pdf
@@ -80,6 +80,19 @@ MCP251XFD *mcp251xfd_create_instance(void);
 void mcp251xfd_destroy_instance(MCP251XFD *instance);
 
 /**
+ * @brief Returns whether a CRC read error has occurred since the flag was last cleared.
+ *
+ * Only meaningful when the device was initialised with config.use_crc = true. A CRC
+ * read that still mismatches after MCP251XFD_CRC_RETRIES attempts latches this flag;
+ * the (unverified) data is still returned to the caller on a best-effort basis.
+ *
+ * @param dev   The MCP251xFD device instance.
+ * @param clear If true, clears the sticky flag after reading it.
+ * @return true if a CRC read error has been latched, false otherwise.
+ */
+bool mcp251xfd_get_spi_crc_error(MCP251XFD *dev, bool clear);
+
+/**
  * @enum mcp251xfd_fosc
  * @brief Enumeration of supported external clock frequencies for the MCP251xFD device.
  */
@@ -112,11 +125,11 @@ typedef enum mcp251xfd_plsize
  */
 typedef struct mcp251xfd_fifo_config
 {
-    bool tx;                    // true = transmit FIFO, false = receive FIFO.
-    uint8_t depth;              // Number of message objects: 1–32.
-    uint8_t payload; // Payload bytes reserved per object. Use mcp251xfd_plsize_t values.
-    uint8_t tx_priority;        // Arbitration priority 0–31, TX FIFOs only.
-    bool auto_rtr;              // Auto-respond to remote frames, TX FIFOs only.
+    bool tx;             // true = transmit FIFO, false = receive FIFO.
+    uint8_t depth;       // Number of message objects: 1–32.
+    uint8_t payload;     // Payload bytes reserved per object. Use mcp251xfd_plsize_t values.
+    uint8_t tx_priority; // Arbitration priority 0–31, TX FIFOs only.
+    bool auto_rtr;       // Auto-respond to remote frames, TX FIFOs only.
 } mcp251xfd_fifo_config_t;
 
 /**
@@ -162,8 +175,13 @@ typedef struct mcp251xfd_config
     // Enable or disable ECC error correction for the internal RAM of the MCP251xFD device.
     bool enable_ecc;
 
+    // Route all register/RAM access through CRC-protected SPI commands once the
+    // oscillator is up. Failed reads are retried (MCP251XFD_CRC_RETRIES) and, on
+    // persistent failure, latch a sticky error queryable via mcp251xfd_get_spi_crc_error().
+    // Reset and oscillator bring-up always use plain SPI regardless of this setting.
+    bool use_crc;
+
     // Chip model. Set to MODEL_MCP2518FD or MODEL_MCP2517FD to match your hardware.
-    // Auto-detection is unreliable after a SPI software reset, so this must be set explicitly.
     uint8_t model; // Use mcp251xfd_model_t values.
 
     // FIFO configurations.
@@ -559,16 +577,6 @@ mcp251xfd_return_t mcp251xfd_get_rx_overflow(MCP251XFD *dev,
 /**
  * @struct mcp251xfd_error_state
  * @brief Decoded contents of the CiTREC register.
- *
- * CiTREC bit layout:
- *   [7:0]  REC   — receive error counter
- *   [15:8] TEC   — transmit error counter
- *   16     EWARN — TEC or REC has reached the warning limit (>= 96)
- *   17     RXWARN — REC >= 96
- *   18     TXWARN — TEC >= 96
- *   19     RXBP   — REC >= 128, node is receive error-passive
- *   20     TXBP   — TEC >= 128, node is transmit error-passive
- *   21     TXBO   — TEC > 255, node is bus-off and cannot transmit
  */
 typedef struct mcp251xfd_error_state
 {
@@ -791,10 +799,10 @@ typedef struct mcp251xfd_tef_config
  */
 typedef struct mcp251xfd_tef_entry
 {
-    uint32_t id;             // Frame identifier (11-bit or 29-bit depending on flags).
-    uint8_t flags; // Frame flags (EFF, FDF, BRS, ESI). Use can_frame_flags_t values.
-    uint8_t dlc;             // Data length code of the transmitted frame.
-    uint16_t timestamp;      // Hardware timestamp at transmission; valid only if TEF was configured with timestamps=true.
+    uint32_t id;        // Frame identifier (11-bit or 29-bit depending on flags).
+    uint8_t flags;      // Frame flags (EFF, FDF, BRS, ESI). Use can_frame_flags_t values.
+    uint8_t dlc;        // Data length code of the transmitted frame.
+    uint16_t timestamp; // Hardware timestamp at transmission; valid only if TEF was configured with timestamps=true.
 } mcp251xfd_tef_entry_t;
 
 /**

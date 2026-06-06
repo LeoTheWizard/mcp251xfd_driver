@@ -1,11 +1,11 @@
 # Build this test on its own:
-#   cd tests/loopback && mkdir build && cd build
+#   cd tests/gpio && mkdir build && cd build
 #   cmake -DPICO_SDK_PATH=/path/to/pico-sdk ..
 #   make -j$(nproc)
 #
 # Or build it together with the other tests via tests/CMakeLists.txt.
 #
-# The .uf2 file will be at build/loopback_test.uf2.
+# The .uf2 file will be at build/gpio_interrupt_test.uf2.
 # Connect via USB serial (115200) to see test output.
 
 cmake_minimum_required(VERSION 3.13)
@@ -25,21 +25,21 @@ if(NOT TARGET lw_mcp251xfd)
 
     include($ENV{PICO_SDK_PATH}/external/pico_sdk_import.cmake)
 
-    project(lw_mcp251xfd_loopback_test C CXX ASM)
+    project(lw_mcp251xfd_gpio_test C CXX ASM)
 
     pico_sdk_init()
 
     add_subdirectory(../.. lw_mcp251xfd_build)
 endif()
 
-add_executable(loopback_test loopback_test.c)
+add_executable(gpio_interrupt_test gpio_interrupt_test.c)
 
-target_compile_definitions(loopback_test PRIVATE
+target_compile_definitions(gpio_interrupt_test PRIVATE
     MCP251XFD_DEBUG
     MCP251XFD_ENABLE_ERROR_MESSAGES
 )
 
-target_link_libraries(loopback_test PRIVATE
+target_link_libraries(gpio_interrupt_test PRIVATE
     lw_mcp251xfd
     pico_stdlib
     hardware_spi
@@ -47,7 +47,7 @@ target_link_libraries(loopback_test PRIVATE
 )
 
 # Output over USB; disable UART to keep the default UART pins free.
-pico_enable_stdio_usb(loopback_test 1)
-pico_enable_stdio_uart(loopback_test 0)
+pico_enable_stdio_usb(gpio_interrupt_test 1)
+pico_enable_stdio_uart(gpio_interrupt_test 0)
 
-pico_add_extra_outputs(loopback_test)
+pico_add_extra_outputs(gpio_interrupt_test)

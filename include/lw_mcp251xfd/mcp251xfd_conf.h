@@ -20,8 +20,14 @@
  * @brief Define this macro to enable plain text error messages that can be retrieved with mcp251xfd_get_error_msg().
  * A 128-byte buffer is allocated for storing error messages.
  */
-#ifndef MCP251XFD_ENABLE_ERROR_MESSAGES
 #define MCP251XFD_ENABLE_ERROR_MESSAGES
+
+/**
+ * @brief Number of times a CRC-protected read is retried before the sticky CRC
+ * error flag is latched. Only relevant when a device is initialised with use_crc.
+ */
+#ifndef MCP251XFD_CRC_RETRIES
+#define MCP251XFD_CRC_RETRIES 3
 #endif
 
 #endif /* MCP2518FD_CONF_H */

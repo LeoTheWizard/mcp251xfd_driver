@@ -14,7 +14,3 @@ target_include_directories(lw_mcp251xfd PUBLIC
 )
 
 target_compile_features(lw_mcp251xfd PUBLIC c_std_99)
-
-target_compile_definitions(lw_mcp251xfd PUBLIC
-    MCP251XFD_ENABLE_ERROR_MESSAGES
-)

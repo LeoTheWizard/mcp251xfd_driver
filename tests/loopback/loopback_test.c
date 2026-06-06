@@ -15,7 +15,7 @@
 #include "pico/stdlib.h"
 #include "pico/bootrom.h"
 #include "hardware/spi.h"
-#include "mcp251xfd.h"
+#include <lw_mcp251xfd/mcp251xfd.h>
 
 /* ---------- Hardware configuration ---------- */
 #define MCP_SPI_PORT spi1
